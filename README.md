@@ -8,7 +8,7 @@
 [![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-orange.svg)](https://www.rust-lang.org)
 [![Status: Building in Public](https://img.shields.io/badge/Status-Building%20in%20Public-brightgreen.svg)]()
 
-*Building in public. Follow the journey → [@yourusername](https://x.com/yourusername)*
+*Building in public. Follow the journey → [@Wasim Akhtar](https://x.com/akhwasim)*
 
 </div>
 
@@ -58,7 +58,7 @@ Safety isn't a feature. It's the foundation everything else is built on.
 ## Current Status
 
 ```
-   Phase 1 — Shell Core     ██░░░░░░░░  In Progress
+   Phase 1 — Shell Core     ██████████  Completed
    Phase 2 — AI Brain       ░░░░░░░░░░  Coming
    Phase 3 — Memory         ░░░░░░░░░░  Coming
    Phase 4 — Intelligence   ░░░░░░░░░░  Coming
@@ -94,7 +94,7 @@ Every decision, every mistake, every breakthrough — documented on X as it happ
 
 This README will change. The code will change. Follow along if you want to see how something like this actually gets built.
 
-*→ [@yourusername](https://x.com/yourusername)*
+*→ [@Wasim Akhtar](https://x.com/akhwasim)*
 
 ---
 
