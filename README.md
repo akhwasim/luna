@@ -70,7 +70,7 @@ Safety isn't a feature. It's the foundation everything else is built on.
 ## Try It Now
 
 ```bash
-git clone https://github.com/yourusername/luna
+git clone https://github.com/akhwasim/luna.git
 cd luna
 cargo build --release
 ./target/release/luna
