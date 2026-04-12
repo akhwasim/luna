@@ -1,6 +1,8 @@
 mod shell;
 mod commands;
+mod ai;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     shell::run();
 }

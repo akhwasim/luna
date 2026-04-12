@@ -1,9 +1,18 @@
 use reedline::{DefaultPrompt, DefaultPromptSegment, Reedline, Signal};
 use crate::commands;
+use crate::ai;
 
 // Luna shell — input loop and prompt
 
+fn load_env() {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let env_path = format!("{}/.luna/.env", home);
+    let _ = dotenvy::from_path(env_path);
+}
+
 pub fn run() {
+    load_env();
+
     println!("🌙 Luna v0.1");
     println!("Type 'exit' to quit\n");
 
@@ -23,6 +32,30 @@ pub fn run() {
                 if input == "exit" || input == "quit" {
                     println!("Goodbye. 🌙");
                     break;
+                }
+
+                // AI trigger
+                if input.starts_with("\\luna ") || input.starts_with("/luna ") {
+                    let query = input
+                        .trim_start_matches("\\luna ")
+                        .trim_start_matches("/luna ")
+                        .to_string();
+
+                    let api_key = std::env::var("GROQ_API_KEY")
+                        .unwrap_or_default();
+
+                    if api_key.is_empty() {
+                        eprintln!("luna: GROQ_API_KEY not set in ~/.luna/.env");
+                    } else {
+                        std::thread::spawn(move || {
+                            tokio::runtime::Runtime::new()
+                                .unwrap()
+                                .block_on(ai::ask(&query, &api_key));
+                        })
+                        .join()
+                        .unwrap();
+                    }
+                    continue;
                 }
 
                 commands::run(&input);
