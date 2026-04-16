@@ -59,7 +59,7 @@ Safety isn't a feature. It's the foundation everything else is built on.
 
 ```
    Phase 1 — Shell Core     ██████████  Completed
-   Phase 2 — AI Brain       ░░░░░░░░░░  Coming
+   Phase 2 — AI Brain       ██████████  completed
    Phase 3 — Memory         ░░░░░░░░░░  Coming
    Phase 4 — Intelligence   ░░░░░░░░░░  Coming
    Phase 5 — Distribution   ░░░░░░░░░░  Coming
