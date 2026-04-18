@@ -1,4 +1,4 @@
-use std::path::Path;
+
 use std::process::Command;
 
 // Luna commands — execution engine
@@ -58,16 +58,21 @@ fn run_in_shell(input: &str) {
 }
 
 fn cd(args: &[&str]) {
+    let home = std::env::var("HOME").unwrap_or_default();
+
     let path = args.first().map(|s| *s).unwrap_or("~");
 
-    let path = if path == "~" {
-        std::env::var("HOME").unwrap_or("/".to_string())
+    // Expand ~ and ~/something
+    let expanded = if path == "~" {
+        home.clone()
+    } else if path.starts_with("~/") {
+        format!("{}/{}", home, &path[2..])
     } else {
         path.to_string()
     };
 
-    if let Err(e) = std::env::set_current_dir(Path::new(&path)) {
-        eprintln!("luna: cd: {}: {}", path, e);
+    if let Err(e) = std::env::set_current_dir(&expanded) {
+        eprintln!("luna: cd: {}: {}", expanded, e);
     }
 }
 

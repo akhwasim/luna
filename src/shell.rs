@@ -14,7 +14,6 @@ fn load_env() {
 pub fn run() {
     load_env();
 
-    // Initialize memory — creates ~/.luna/memory.db if it doesn't exist
     let memory = Memory::new().unwrap_or_else(|e| {
         eprintln!("luna: memory error: {}", e);
         std::process::exit(1);
@@ -54,7 +53,6 @@ pub fn run() {
                     if api_key.is_empty() {
                         eprintln!("luna: GROQ_API_KEY not set in ~/.luna/.env");
                     } else {
-                        // Pass memory context to AI
                         let context = memory.context_for_ai();
 
                         std::thread::spawn(move || {
@@ -68,7 +66,13 @@ pub fn run() {
                     continue;
                 }
 
-                // Save command to memory before running
+                // Built-ins that don't get saved to history
+                if input == "history" {
+                    memory.print_recent(10);
+                    continue;
+                }
+
+                // Save and execute
                 let cwd = std::env::current_dir()
                     .unwrap_or_default()
                     .to_string_lossy()
@@ -76,11 +80,6 @@ pub fn run() {
 
                 memory.save_command(&input, &cwd, true);
                 commands::run(&input);
-
-
-
-
-                
             }
 
             Ok(Signal::CtrlC) => {

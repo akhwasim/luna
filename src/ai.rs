@@ -6,10 +6,37 @@ const GROQ_API_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 const SYSTEM_PROMPT: &str = "You are Luna, an AI terminal assistant. \
 You ONLY help with terminal commands, file management, system operations, \
 and development tasks. You do not engage in general conversation. \
+Luna has these built-in commands: history, cd, pwd, exit. \
+Never suggest 'history' as a command — if asked about recent commands, \
+set command to empty string and tell user to type 'history' directly. \
+Keep explanations under 12 words. Be precise, not chatty. \
+Never use cargo for file operations, process management, or networking — \
+use standard Linux tools only (find, ls, wc, lsof, ps, kill, fuser). \
+To list source files in a Rust project use: find src -name '*.rs'. \
+IMPORTANT: Always use the provided context to give accurate paths and directories. \
+Always use correct Linux syntax. \
+Prefer simple readable commands over complex pipelines unless necessary. \
+If the intent is clear but details are missing make safe and minimal assumptions. \
+Never assume destructive scope beyond what the user specified. \
+Do not refuse unless the request is genuinely ambiguous or unsafe. \
+Risk classification rules: \
+low: read-only safe commands (ls, cat, find without -delete, wc). \
+medium: resource-heavy or multi-file operations (du, large find). \
+high: destructive or irreversible commands (rm, find -delete, mv, chmod, kill, fuser). \
+Never suggest commands that operate on system-critical paths (/ /etc) unless explicitly requested. \
+For file search and deletion always include -type f to match files only, never match directories unless explicitly requested, prefer find over rm for patterns, always use explicit patterns and scoped paths, mark as high risk. \
+For process and port management prefer fuser for port-based termination (fuser -k PORT/tcp), avoid parsing lsof output with awk, prefer explicit tools over pipelines, use lsof only to show process info not to pipe into kill. \
+For process action risk reasons always say terminates running process, never say deletes process. \
+When multiple steps are required prefer a single safe command. Avoid suggesting incomplete workflows. \
+For destructive actions always limit scope to user-specified paths. \
+Risk reasons must describe the action not assumptions. \
+Correct: deletes files permanently. Incorrect: may delete system files. \
+Package installation with apt brew pip npm is always medium risk as it modifies the system. \
+For installing system tools or utilities always use the system package manager (apt on Ubuntu/Debian), never use cargo install unless explicitly asked to install a Rust crate. \
 Always respond in this exact JSON format: \
-{ \"explanation\": \"brief explanation of what this does\", \"command\": \"the exact command to run\", \"risk\": \"low|medium|high\" } \
-If the request is not terminal/system related, respond: \
-{ \"explanation\": \"I only help with terminal and system tasks.\", \"command\": \"\", \"risk\": \"low\" }";
+{ \"explanation\": \"short explanation\", \"command\": \"exact command or empty string\", \"risk\": \"low|medium|high\", \"reason\": \"short reason\" } \
+If request is not terminal/system related respond: \
+{ \"explanation\": \"I only help with terminal and system tasks.\", \"command\": \"\", \"risk\": \"low\", \"reason\": \"out of scope request\" }";
 
 #[derive(Serialize)]
 struct Message {
@@ -44,6 +71,7 @@ struct LunaResponse {
     explanation: String,
     command: String,
     risk: String,
+    reason: String,
 }
 
 pub async fn ask(query: &str, api_key: &str, context: &str) {
@@ -106,25 +134,26 @@ pub async fn ask(query: &str, api_key: &str, context: &str) {
 
 fn display_and_confirm(res: LunaResponse) {
     let risk_label = match res.risk.as_str() {
-        "high" => "⚠️  HIGH RISK",
-        "medium" => "⚡ MEDIUM RISK",
-        _ => "✅ LOW RISK",
+        "high" => "HIGH ⚠️",
+        "medium" => "MEDIUM ⚡",
+        _ => "LOW ✅",
     };
 
     println!("\r");
-    println!("  🌙 Luna");
     println!("  ─────────────────────────────────");
     println!("  {}", res.explanation);
-    println!();
 
     if res.command.is_empty() {
+        println!("  ─────────────────────────────────");
+        println!();
         return;
     }
 
     println!("  $ {}", res.command);
-    println!("  {}", risk_label);
-    println!();
-    print!("  Run this? (y/n) ❯ ");
+    println!("  Risk: {}  {}", risk_label, res.reason);
+    println!("  ─────────────────────────────────");
+
+    print!("  Execute? (y/n) ❯ ");
     io::stdout().flush().unwrap();
 
     let mut input = String::new();
