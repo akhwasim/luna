@@ -33,7 +33,7 @@ That's not a missing feature. That's a fundamental design flaw.
 
 ## What Luna Is
 
-Luna is a standalone terminal shell --- not a plugin, not a wrapper, not
+Luna is a standalone terminal shell — not a plugin, not a wrapper, not
 a chatbot glued to bash.
 
 A compiled Rust binary that:
@@ -41,7 +41,9 @@ A compiled Rust binary that:
 -   Understands natural language
 -   Translates it into precise terminal commands
 -   Ensures safe, controlled execution
--   (Soon) remembers everything you do
+-   Remembers every command across sessions
+-   Tracks your working directory and project context
+-   Uses memory to improve AI suggestions
 
 ---
 
@@ -50,16 +52,20 @@ A compiled Rust binary that:
 Luna already works as a **controlled, safety-first execution layer for
 the terminal**
 
+It is no longer stateless — it remembers and adapts.
+
 -   Natural language → terminal command
 -   Explains what will run before execution
 -   Assigns a **risk score** to every command
 -   Requires explicit confirmation (`y/n`)
 -   Rejects non-terminal queries (strict scope control)
+-   Remembers commands, directories, and project context across sessions
+-   Injects context into AI automatically
 
 ### Example
 
-``` bash
-\luna "find files larger than 10mb"
+```bash
+/luna "find files larger than 10mb"
 
 🌙 Luna
 ─────────────────────────────────
@@ -72,10 +78,22 @@ Risk: LOW
 Execute? (y/n)
 ```
 
+#### Memory example
+
+```bash
+history
+
+1. cargo build        (/luna)
+2. cargo run          (/luna)
+3. cargo test         (/luna/tests)
+
+Luna remembers what you ran, where you ran it, and uses this context in future suggestions.
+```
+
 #### Out-of-scope example
 
-``` bash
-\luna "what is the capital of france"
+```bash
+/luna "what is the capital of france"
 
 Out of scope: Luna only handles terminal-related tasks.
 ```
@@ -95,23 +113,24 @@ Out of scope: Luna only handles terminal-related tasks.
 
     Phase 1 — Shell Core     ██████████  Completed
     Phase 2 — AI Brain       ██████████  Completed
-    Phase 3 — Memory         ░░░░░░░░░░  In Progress
-    Phase 4 — Intelligence   ░░░░░░░░░░  Coming
+    Phase 3 — Memory         ██████████  Completed
+    Phase 4 — Intelligence   ███░░░░░░░  In Progress
     Phase 5 — Distribution   ░░░░░░░░░░  Coming
 
 ---
 
 ## Try It Now
 
-``` bash
+```bash
 git clone https://github.com/akhwasim/luna.git
 cd luna
 cargo build --release
 ./target/release/luna
 ```
 
-> Requires Rust 1.70+ 
-> Linux or WSL (Ubuntu recommended)
+**Requirements:**
+- Rust 1.70+
+- Linux or WSL (Ubuntu recommended)
 
 ---
 
@@ -119,17 +138,17 @@ cargo build --release
 
 No runtime. No garbage collector. No heavy dependencies.
 
-Luna starts in milliseconds and stays lightweight --- exactly what a
-terminal should do.
+Luna starts in milliseconds and stays lightweight — exactly what a terminal should do.
 
 ---
 
 ## Roadmap
 
--   Persistent memory across sessions
+-   Enhanced memory reasoning (learning from patterns)
 -   Learning from command history + errors
 -   Context-aware suggestions
 -   Smarter risk analysis
+-   Adaptive command recommendations
 
 ---
 
@@ -159,6 +178,6 @@ to see how something like this actually gets built.
 
 <div align="center">
 
-*Built with 🦀 Rust · No cloud · No tracking · Just a terminal with a memory*
+*Built with 🦀 Rust · No tracking · A terminal that remembers, learns, and adapts*
 
 </div>
