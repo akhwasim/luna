@@ -46,8 +46,14 @@ struct LunaResponse {
     risk: String,
 }
 
-pub async fn ask(query: &str, api_key: &str) {
+pub async fn ask(query: &str, api_key: &str, context: &str) {
     let client = reqwest::Client::new();
+
+    let user_message = if context.is_empty() {
+        query.to_string()
+    } else {
+        format!("{}\n\nContext:\n{}", query, context)
+    };
 
     let request_body = GroqRequest {
         model: "llama-3.1-8b-instant".to_string(),
@@ -58,7 +64,7 @@ pub async fn ask(query: &str, api_key: &str) {
             },
             Message {
                 role: "user".to_string(),
-                content: query.to_string(),
+                content: user_message,
             },
         ],
         temperature: 0.3,
@@ -80,7 +86,6 @@ pub async fn ask(query: &str, api_key: &str) {
             match res.json::<GroqResponse>().await {
                 Ok(groq_res) => {
                     let content = &groq_res.choices[0].message.content;
-                    // Clean up markdown code blocks if present
                     let clean = content
                         .replace("```json", "")
                         .replace("```", "")
@@ -92,7 +97,7 @@ pub async fn ask(query: &str, api_key: &str) {
                         Err(_) => println!("\r🌙 {}", content),
                     }
                 }
-                Err(e) => eprintln!("\r luna: API error: {}", e),
+                Err(e) => eprintln!("\rluna: API error: {}", e),
             }
         }
         Err(e) => eprintln!("\rluna: Connection error: {}", e),
@@ -100,7 +105,6 @@ pub async fn ask(query: &str, api_key: &str) {
 }
 
 fn display_and_confirm(res: LunaResponse) {
-    // Risk indicator
     let risk_label = match res.risk.as_str() {
         "high" => "⚠️  HIGH RISK",
         "medium" => "⚡ MEDIUM RISK",
