@@ -38,7 +38,6 @@ Package installation with apt brew pip npm is always medium risk as it modifies 
 For installing system tools or utilities always use the system package manager (apt on Ubuntu/Debian), never use cargo install unless explicitly asked to install a Rust crate. \
 Docker kubectl and container tools are valid system operations, always suggest correct docker commands regardless of project type. \
 Git commands are always standard git commands regardless of project type — never use cargo for git operations. \
-Git commands are always standard git commands regardless of project type — never use cargo for git operations. \
 Examples of correct git commands: git init, git checkout -b <branch-name>, git add, git commit, git push. \
 Never suggest cargo new or cargo add for git operations. \
 For generic how-to questions not tied to a specific path always use placeholders like <folder-name> <filename> <branch-name>. \
@@ -83,6 +82,32 @@ struct LunaResponse {
     reason: String,
 }
 
+fn sanitize_command(cmd: &str) -> String {
+    let patterns: &[(&str, &str)] = &[
+        ("git init && cd . &&", "git init &&"),
+        ("&& cd . &&", " &&"),
+        ("git init && git add . && git commit -m 'initial commit'", "git init"),
+        ("git init && cd . && git add . && git commit -m 'initial commit'", "git init"),
+        ("cargo new . --bin &&", "git init &&"),
+        ("cargo new . &&", "git init &&"),
+        ("cargo new --vcs git . &&", "git init &&"),
+        ("cargo new .", "git init"),
+        ("cargo add git", "git checkout -b <branch-name>"),
+        ("cargo add feature", "git checkout -b <branch-name>"),
+        ("cargo feature", "git checkout -b <branch-name>"),
+        ("cargo tree | grep .rs", "find src -name '*.rs'"),
+        ("cargo find", "find"),
+    ];
+
+    let mut result = cmd.to_string();
+    for (wrong, correct) in patterns {
+        if result.contains(wrong) {
+            result = result.replace(wrong, correct);
+        }
+    }
+    result
+}
+
 pub async fn ask(query: &str, api_key: &str, context: &str) {
     let client = reqwest::Client::new();
 
@@ -93,7 +118,7 @@ pub async fn ask(query: &str, api_key: &str, context: &str) {
     };
 
     let request_body = GroqRequest {
-        model: "llama-3.1-8b-instant".to_string(),
+        model: "llama-3.3-70b-versatile".to_string(),
         messages: vec![
             Message {
                 role: "system".to_string(),
@@ -204,6 +229,8 @@ pub async fn fix_error(command: &str, error: &str, api_key: &str, context: &str)
 }
 
 fn display_and_confirm(res: LunaResponse) {
+    let clean_command = sanitize_command(&res.command);
+
     let risk_label = match res.risk.as_str() {
         "high" => "HIGH ⚠️",
         "medium" => "MEDIUM ⚡",
@@ -214,29 +241,28 @@ fn display_and_confirm(res: LunaResponse) {
     println!("  ─────────────────────────────────");
     println!("  {}", res.explanation);
 
-    if res.command.is_empty() {
+    if clean_command.is_empty() {
         println!("  ─────────────────────────────────");
         println!();
         return;
     }
 
-    // If command has a placeholder, show it but don't ask to execute
-    let looks_like_template = res.command.contains('<')
-        || res.command.contains("file_name")
-        || res.command.contains("folder_name")
-        || res.command.contains("image_name")
-        || res.command.contains("image-name")
-        || res.command.contains("your_");
+    let looks_like_template = clean_command.contains('<')
+        || clean_command.contains("file_name")
+        || clean_command.contains("folder_name")
+        || clean_command.contains("image_name")
+        || clean_command.contains("image-name")
+        || clean_command.contains("your_");
 
     if looks_like_template {
-        println!("  $ {}", res.command);
+        println!("  $ {}", clean_command);
         println!("  Risk: {}  {}", risk_label, res.reason);
         println!("  ─────────────────────────────────");
         println!();
         return;
     }
 
-    println!("  $ {}", res.command);
+    println!("  $ {}", clean_command);
     println!("  Risk: {}  {}", risk_label, res.reason);
     println!("  ─────────────────────────────────");
 
@@ -248,7 +274,7 @@ fn display_and_confirm(res: LunaResponse) {
 
     if input.trim().to_lowercase() == "y" {
         println!();
-        crate::commands::run(&res.command);
+        crate::commands::run(&clean_command);
     } else {
         println!("  Skipped.");
     }
