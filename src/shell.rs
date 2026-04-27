@@ -78,8 +78,35 @@ pub fn run() {
                     .to_string_lossy()
                     .to_string();
 
-                memory.save_command(&input, &cwd, true);
-                commands::run(&input);
+                let result = commands::run(&input);
+                memory.save_command(&input, &cwd, result.success);
+
+                // Error detection — if command failed, ask AI for fix
+                if !result.success && !result.error_output.is_empty() {
+                    let api_key = std::env::var("GROQ_API_KEY")
+                        .unwrap_or_default();   
+
+                    if !api_key.is_empty() {
+                        let context = memory.context_for_ai();
+                        let failed_cmd = input.clone();
+                        let error_out = result.error_output.clone();
+
+                        memory.save_error(&failed_cmd, &error_out, None);
+
+                        std::thread::spawn(move || {
+                            tokio::runtime::Runtime::new()
+                                .unwrap()
+                                .block_on(ai::fix_error(
+                                    &failed_cmd,
+                                    &error_out,
+                                    &api_key,
+                                    &context,
+                                ));
+                        })
+                        .join()
+                        .unwrap();
+                    }
+                }
             }
 
             Ok(Signal::CtrlC) => {

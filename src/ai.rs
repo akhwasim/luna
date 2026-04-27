@@ -33,6 +33,13 @@ For process action risk reasons always say terminates running process, never say
 When multiple steps are required prefer a single safe command. Avoid suggesting incomplete workflows. \
 For destructive actions always limit scope to user-specified paths. \
 Risk reasons must describe the action not assumptions. \
+Luna can answer questions about the user's recent activity, errors, and commands using the provided context. \
+Questions like 'what errors have I been getting', 'what was the last command I ran', 'what have I been working on' are valid. \
+For memory questions always set command to empty string and put the answer in explanation. \
+Example: 'what was the last command' → explanation: 'git status', command: ''. \
+Example: 'what have I been working on' → explanation: 'Rust project, running cargo build and git commands', command: ''. \
+Example: 'what directory am I in' → explanation: '/home/glitch/luna', command: ''. \
+Never say 'check recent commands' or 'type history' — just state the answer directly from context. \
 Correct: deletes files permanently. Incorrect: may delete system files. \
 Package installation with apt brew pip npm is always medium risk as it modifies the system. \
 For installing system tools or utilities always use the system package manager (apt on Ubuntu/Debian), never use cargo install unless explicitly asked to install a Rust crate. \
@@ -108,6 +115,30 @@ fn sanitize_command(cmd: &str) -> String {
     result
 }
 
+fn is_memory_query(query: &str) -> bool {
+    let q = query.to_lowercase();
+    q.contains("last command")
+        || q.contains("what directory")
+        || q.contains("where am i")
+        || q.contains("current dir")
+        || q.contains("what have i been")
+        || q.contains("what was i")
+        || q.contains("what errors")
+        || q.contains("what did i")
+        || q.contains("recently")
+        || q.contains("working on")
+}
+
+fn extract_first_json(text: &str) -> String {
+    let start = text.find('{');
+    let end = text.rfind('}');
+
+    match (start, end) {
+        (Some(s), Some(e)) if e > s => text[s..=e].to_string(),
+        _ => text.to_string(),
+    }
+}
+
 pub async fn ask(query: &str, api_key: &str, context: &str) {
     let client = reqwest::Client::new();
 
@@ -154,8 +185,20 @@ pub async fn ask(query: &str, api_key: &str, context: &str) {
                         .trim()
                         .to_string();
 
-                    match serde_json::from_str::<LunaResponse>(&clean) {
-                        Ok(luna_res) => display_and_confirm(luna_res),
+                    let json_str = extract_first_json(&clean);
+
+                    match serde_json::from_str::<LunaResponse>(&json_str) {
+                        Ok(mut luna_res) => {
+                            if is_memory_query(query) {
+                                luna_res.explanation = if luna_res.command.is_empty() {
+                                    luna_res.explanation
+                                } else {
+                                    format!("{} — {}", luna_res.explanation, luna_res.command)
+                                };
+                                luna_res.command = String::new();
+                            }
+                            display_and_confirm(luna_res);
+                        }
                         Err(_) => println!("\r🌙 {}", content),
                     }
                 }
@@ -170,12 +213,12 @@ pub async fn fix_error(command: &str, error: &str, api_key: &str, context: &str)
     let client = reqwest::Client::new();
 
     let user_message = format!(
-        "Command that failed: {}\nError output: {}\n\nContext:\n{}\n\nSuggest a fix.",
+        "Command that failed: {}\nError output: {}\n\nContext:\n{}\n\nThe command failed. Suggest a specific fix command. If the file or path does not exist, suggest how to create it or find the correct path.",
         command, error, context
     );
 
     let request_body = GroqRequest {
-        model: "llama-3.1-8b-instant".to_string(),
+        model: "llama-3.3-70b-versatile".to_string(),
         messages: vec![
             Message {
                 role: "system".to_string(),
@@ -211,11 +254,12 @@ pub async fn fix_error(command: &str, error: &str, api_key: &str, context: &str)
                         .trim()
                         .to_string();
 
-                    match serde_json::from_str::<LunaResponse>(&clean) {
+                    let json_str = extract_first_json(&clean);
+
+                    match serde_json::from_str::<LunaResponse>(&json_str) {
                         Ok(luna_res) => {
                             println!("\r");
                             println!("  🌙 Luna detected an error");
-                            println!("  ─────────────────────────────────");
                             display_and_confirm(luna_res);
                         }
                         Err(_) => println!("\r🌙 {}", content),
@@ -248,6 +292,7 @@ fn display_and_confirm(res: LunaResponse) {
     }
 
     let looks_like_template = clean_command.contains('<')
+        
         || clean_command.contains("file_name")
         || clean_command.contains("folder_name")
         || clean_command.contains("image_name")

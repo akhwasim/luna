@@ -1,28 +1,36 @@
-
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::io::Read;
 
 // Luna commands — execution engine
 
-pub fn run(input: &str) {
+pub struct CommandResult {
+    pub success: bool,
+    pub error_output: String,
+}
+
+pub fn run(input: &str) -> CommandResult {
     let mut parts = input.split_whitespace();
 
     let command = match parts.next() {
         Some(cmd) => cmd,
-        None => return,
+        None => return CommandResult { success: true, error_output: String::new() },
     };
 
     let args: Vec<&str> = parts.collect();
 
-    // Hand off to /bin/sh for shell features — pipes, redirects, globs
-  
     if needs_shell(input) {
-        run_in_shell(input);
-        return;
+        return run_in_shell(input);
     }
 
     match command {
-        "cd" => cd(&args),
-        "pwd" => pwd(),
+        "cd" => {
+            cd(&args);
+            CommandResult { success: true, error_output: String::new() }
+        }
+        "pwd" => {
+            pwd();
+            CommandResult { success: true, error_output: String::new() }
+        }
         _ => execute(command, &args),
     }
 }
@@ -34,35 +42,43 @@ fn needs_shell(input: &str) -> bool {
         || input.contains("&&")
         || input.contains("||")
         || input.contains(';')
-        || input.contains('*')  
+        || input.contains('*')
         || input.contains('?')
-        || input.contains('$')  
+        || input.contains('$')
 }
 
-// Pass command to /bin/sh 
-fn run_in_shell(input: &str) {
+fn run_in_shell(input: &str) -> CommandResult {
     match Command::new("/bin/sh")
         .arg("-c")
         .arg(input)
+        .stderr(Stdio::piped())
         .spawn()
     {
         Ok(mut child) => {
-            child.wait().unwrap();
+            let mut stderr = String::new();
+            if let Some(mut err) = child.stderr.take() {
+                err.read_to_string(&mut stderr).ok();
+            }
+            let status = child.wait().unwrap();
             print!("\x1b[?1h\x1b=");
             let _ = std::io::Write::flush(&mut std::io::stdout());
+
+            CommandResult {
+                success: status.success(),
+                error_output: stderr.trim().to_string(),
+            }
         }
         Err(e) => {
             eprintln!("luna: {}", e);
+            CommandResult { success: false, error_output: e.to_string() }
         }
     }
 }
 
 fn cd(args: &[&str]) {
     let home = std::env::var("HOME").unwrap_or_default();
-
     let path = args.first().map(|s| *s).unwrap_or("~");
 
-    // Expand ~ and ~/something
     let expanded = if path == "~" {
         home.clone()
     } else if path.starts_with("~/") {
@@ -83,15 +99,33 @@ fn pwd() {
     }
 }
 
-fn execute(command: &str, args: &[&str]) {
-    match Command::new(command).args(args).spawn() {
+fn execute(command: &str, args: &[&str]) -> CommandResult {
+    match Command::new(command)
+        .args(args)
+        .stderr(Stdio::piped())
+        .spawn()
+    {
         Ok(mut child) => {
-            child.wait().unwrap();
+            let mut stderr = String::new();
+            if let Some(mut err) = child.stderr.take() {
+                err.read_to_string(&mut stderr).ok();
+            }
+            let status = child.wait().unwrap();
             print!("\x1b[?1h\x1b=");
             let _ = std::io::Write::flush(&mut std::io::stdout());
+
+            if !stderr.is_empty() {
+                eprint!("{}", stderr);
+            }
+
+            CommandResult {
+                success: status.success(),
+                error_output: stderr.trim().to_string(),
+            }
         }
         Err(e) => {
             eprintln!("luna: {}: {}", command, e);
+            CommandResult { success: false, error_output: e.to_string() }
         }
     }
 }

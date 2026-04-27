@@ -66,29 +66,58 @@ impl Memory {
             .collect()
     }
 
-    pub fn context_for_ai(&self) -> String {
-        let recent = self.recent_commands(10);
-
-        let cwd = std::env::current_dir()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-
-        let home = std::env::var("HOME").unwrap_or_default();
-        let luna_dir = format!("{}/luna", home);
-        let project_type = detect_project_type();
-
-        let recent_str = if recent.is_empty() {
-            "none".to_string()
-        } else {
-            recent.join(", ")
+    pub fn recent_errors(&self, limit: usize) -> Vec<String> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT command, error FROM errors ORDER BY timestamp DESC LIMIT ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
         };
 
-        format!(
-            "User's current directory: {}\nLuna project location: {}\nProject type in current directory: {}\nRecent commands run: {}",
-            cwd, luna_dir, project_type, recent_str
-        )
+        stmt.query_map(params![limit as i64], |row| {
+            let cmd: String = row.get(0)?;
+            let err: String = row.get(1)?;
+            Ok(format!("{}: {}", cmd, err))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
+
+    pub fn context_for_ai(&self) -> String {
+    let recent = self.recent_commands(10);
+    let recent_errors = self.recent_errors(3);
+
+    let cwd = std::env::current_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let luna_dir = format!("{}/luna", home);
+    let project_type = detect_project_type();
+
+    let last_command = recent.first()
+        .cloned()
+        .unwrap_or_else(|| "none".to_string());
+
+    let recent_str = if recent.is_empty() {
+        "none".to_string()
+    } else {
+        recent.join(", ")
+    };
+
+    let errors_str = if recent_errors.is_empty() {
+        "none".to_string()
+    } else {
+        recent_errors.join(", ")
+    };
+
+    format!(
+        "User's current directory: {}\nLuna project location: {}\nProject type in current directory: {}\nLast command run: {}\nRecent commands (newest first): {}\nRecent errors: {}",
+        cwd, luna_dir, project_type, last_command, recent_str, errors_str
+    )
+}
 
     pub fn print_recent(&self, limit: usize) {
         let mut stmt = self.conn.prepare(
@@ -119,7 +148,6 @@ impl Memory {
 }
 
 fn detect_project_type() -> &'static str {
-    // Check current directory and up to 3 parent directories
     let mut dir = std::env::current_dir().unwrap_or_default();
 
     for _ in 0..4 {
