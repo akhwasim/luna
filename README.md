@@ -111,11 +111,13 @@ Out of scope: Luna only handles terminal-related tasks.
 
 ## Current Status
 
-    Phase 1 — Shell Core     ██████████  Completed
-    Phase 2 — AI Brain       ██████████  Completed
-    Phase 3 — Memory         ██████████  Completed
-    Phase 4 — Intelligence   ███░░░░░░░  In Progress
-    Phase 5 — Distribution   ░░░░░░░░░░  Coming
+    Phase 1 — Shell Core          ██████████  Completed
+    Phase 2 — AI Brain            ██████████  Completed
+    Phase 3 — Memory              ██████████  Completed
+    Phase 4 — Error Intelligence  ██████████  Completed   
+    Phase 5 — Safety Layer        ░░░░░░░░░░  Coming
+    Phase 6 — UI & Themes         ░░░░░░░░░░  Coming
+    Phase 7 — Distribution        ░░░░░░░░░░  Coming
 
 ---
 
