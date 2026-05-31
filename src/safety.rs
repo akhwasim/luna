@@ -26,6 +26,7 @@ fn is_root_deletion(cmd: &str) -> bool {
         if cmd == *pattern
             || cmd.starts_with(&format!("{} ", pattern.trim()))
             || cmd.trim() == pattern.trim()
+            || cmd.contains(pattern)  // catches (rm -rf /) and sudo sudo rm -rf /
         {
             return true;
         }
@@ -204,6 +205,10 @@ pub fn check(command: &str) -> RiskLevel {
         ("wipe",              "permanently wipes files or devices"),
         ("iptables -F",       "flushes all firewall rules"),
         ("ufw disable",       "disables the firewall"),
+        ("$( rm",    "command substitution hiding rm command"),
+        ("$(rm",     "command substitution hiding rm command"),
+        ("$( dd",    "command substitution hiding dd command"),
+        ("$( mkfs",  "command substitution hiding mkfs command"),
     ];
 
     for (pattern, reason) in high {

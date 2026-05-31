@@ -45,6 +45,8 @@ fn needs_shell(input: &str) -> bool {
         || input.contains('*')
         || input.contains('?')
         || input.contains('$')
+        || input.contains('"')
+        || input.contains('\'')
 }
 
 fn run_in_shell(input: &str) -> CommandResult {
@@ -61,7 +63,7 @@ fn run_in_shell(input: &str) -> CommandResult {
             }
             let status = child.wait().unwrap();
             print!("\x1b[?1h\x1b=");
-            let _ = std::io::Write::flush(&mut std::io::stdout());
+            let _ = std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
             CommandResult {
                 success: status.success(),
@@ -112,7 +114,7 @@ fn execute(command: &str, args: &[&str]) -> CommandResult {
             }
             let status = child.wait().unwrap();
             print!("\x1b[?1h\x1b=");
-            let _ = std::io::Write::flush(&mut std::io::stdout());
+            let _ = std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
             if !stderr.is_empty() {
                 eprint!("{}", stderr);
