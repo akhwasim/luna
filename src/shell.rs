@@ -129,29 +129,44 @@ pub fn run() {
                 memory.save_command(&input, &cwd, result.success);
 
                 // Error detection
+                // Error detection
                 if !result.success && !result.error_output.is_empty() {
-                    let api_key = std::env::var("GROQ_API_KEY")
-                        .unwrap_or_default();
+                    let is_permission_error = result.error_output.contains("Permission denied")
+                        || result.error_output.contains("Operation not permitted")
+                        || result.error_output.contains("Interactive authentication required");
+                    let already_has_sudo = input.starts_with("sudo ");
 
-                    if !api_key.is_empty() {
-                        let context = memory.context_for_ai();
-                        let failed_cmd = input.clone();
-                        let error_out = result.error_output.clone();
+                    // Never suggest sudo escalation if original command didn't use sudo
+                    if is_permission_error && !already_has_sudo {
+                        println!();
+                        println!("  luna: permission denied");
+                        println!("  If you intended to run with elevated privileges, add sudo.");
+                        println!();
+                        memory.save_error(&input, &result.error_output, None);
+                    } else {
+                        let api_key = std::env::var("GROQ_API_KEY")
+                            .unwrap_or_default();
 
-                        memory.save_error(&failed_cmd, &error_out, None);
+                        if !api_key.is_empty() {
+                            let context = memory.context_for_ai();
+                            let failed_cmd = input.clone();
+                            let error_out = result.error_output.clone();
 
-                        std::thread::spawn(move || {
-                            tokio::runtime::Runtime::new()
-                                .unwrap()
-                                .block_on(ai::fix_error(
-                                    &failed_cmd,
-                                    &error_out,
-                                    &api_key,
-                                    &context,
-                                ));
-                        })
-                        .join()
-                        .unwrap();
+                            memory.save_error(&failed_cmd, &error_out, None);
+
+                            std::thread::spawn(move || {
+                                tokio::runtime::Runtime::new()
+                                    .unwrap()
+                                    .block_on(ai::fix_error(
+                                        &failed_cmd,
+                                        &error_out,
+                                        &api_key,
+                                        &context,
+                                    ));
+                            })
+                            .join()
+                            .unwrap();
+                        }
                     }
                 }
             }
