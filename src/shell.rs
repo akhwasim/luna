@@ -2,6 +2,7 @@ use reedline::{DefaultPrompt, DefaultPromptSegment, Reedline, Signal};
 use crate::commands;
 use crate::ai;
 use crate::memory::Memory;
+use crate::safety;
 
 // Luna shell — input loop and prompt
 
@@ -66,11 +67,57 @@ pub fn run() {
                     continue;
                 }
 
-                // Built-ins that don't get saved to history
+                // Built-in history
                 if input == "history" {
                     memory.print_recent(10);
                     continue;
                 }
+
+                // Safety check before execution
+                // Safety check before execution
+            match safety::check(&input) {
+                safety::RiskLevel::Critical(reason) => {
+                    println!();
+                    println!("  🚨 CRITICAL — Extremely dangerous command");
+                    println!("  ─────────────────────────────────");
+                    println!("  {}", reason);
+                    println!("  $ {}", input);
+                    println!();
+                    print!("  Type 'I UNDERSTAND' to proceed ❯ ");
+                    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                    let mut confirm = String::new();
+                    std::io::stdin().read_line(&mut confirm).unwrap();
+                    if confirm.trim() != "I UNDERSTAND" {
+                        println!("  Blocked.");
+                        println!();
+                        continue;
+                    }
+                    println!();
+                }
+                safety::RiskLevel::High(reason) => {
+                    println!();
+                    println!("  ⚠️  HIGH RISK");
+                    println!("  ─────────────────────────────────");
+                    println!("  {}", reason);
+                    println!("  $ {}", input);
+                    print!("  Run anyway? (y/n) ❯ ");
+                    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                    let mut confirm = String::new();
+                    std::io::stdin().read_line(&mut confirm).unwrap();
+                    if confirm.trim().to_lowercase() != "y" {
+                        println!("  Blocked.");
+                        println!();
+                        continue;
+                    }
+                    println!();
+                }
+                safety::RiskLevel::Medium(reason) => {
+                    println!();
+                    println!("  ⚡ MEDIUM — {}", reason);
+                    println!();
+                }
+                safety::RiskLevel::Safe => {}
+            }
 
                 // Save and execute
                 let cwd = std::env::current_dir()
@@ -81,10 +128,10 @@ pub fn run() {
                 let result = commands::run(&input);
                 memory.save_command(&input, &cwd, result.success);
 
-                // Error detection — if command failed, ask AI for fix
+                // Error detection
                 if !result.success && !result.error_output.is_empty() {
                     let api_key = std::env::var("GROQ_API_KEY")
-                        .unwrap_or_default();   
+                        .unwrap_or_default();
 
                     if !api_key.is_empty() {
                         let context = memory.context_for_ai();
