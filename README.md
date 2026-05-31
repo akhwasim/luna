@@ -46,8 +46,6 @@ The difference is fundamental:
 | Reacts to what you type | Anticipates what you need |
 | Stateless | Accumulates intelligence over time |
 
-This is not a tool. This is the closest thing to JARVIS that lives in your terminal.
-
 ---
 
 ## How Luna Thinks
@@ -102,7 +100,7 @@ Luna knows what project you're in, what you've been doing, and adapts automatica
 
 Switch to a Python project — she suggests `python3 main.py`.
 Switch to Node — she suggests `npm start`.
-She reads the room.
+Luna adapts automatically.
 
 ### Catch Errors Before You Do
 
@@ -138,7 +136,7 @@ git: 'psuh' is not a git command.
 ```
 
 Not just commands — directories, timestamps, what succeeded, what failed.
-All of it. Across every session. Forever.
+All of it. Across sessions over time.
 
 ### Never Run Blind
 
