@@ -18,6 +18,9 @@ fn is_root_deletion(cmd: &str) -> bool {
         "rm -rf $HOME",
         "rm -rf \"$HOME\"",
         "rm -rf ../",
+        "mv ~ ",
+        "mv $HOME",
+        "mv \"$HOME\"",
     ];
     for pattern in &dangerous {
         if cmd == *pattern
@@ -30,27 +33,71 @@ fn is_root_deletion(cmd: &str) -> bool {
     false
 }
 
+fn is_remote_execution(cmd: &str) -> bool {
+    let fetchers = ["curl ", "wget "];
+    let has_fetcher = fetchers.iter().any(|f| cmd.contains(f));
+    let has_pipe = cmd.contains('|');
+    let has_executor = cmd.contains("| bash")
+        || cmd.contains("|bash")
+        || cmd.contains("| sh")
+        || cmd.contains("|sh")
+        || cmd.contains("| zsh")
+        || cmd.contains("bash <(")
+        || cmd.contains("sh <(");
+
+    has_fetcher && (has_pipe && has_executor || cmd.contains("bash <(") || cmd.contains("sh <("))
+}
+
+fn is_service_modification(cmd: &str) -> bool {
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    if parts.len() >= 3 && parts[0] == "service" {
+        let action = parts[parts.len() - 1];
+        return matches!(action, "stop" | "restart" | "disable" | "kill");
+    }
+    false
+}
+
 pub fn check(command: &str) -> RiskLevel {
     let cmd = command.trim();
 
-    // Root deletion — always critical
     if is_root_deletion(cmd) {
         return RiskLevel::Critical("deletes your entire home or root filesystem".to_string());
     }
 
+    if is_remote_execution(cmd) {
+        return RiskLevel::High("executes remote code directly".to_string());
+    }
+
+    if is_service_modification(cmd) {
+        return RiskLevel::High("modifies a system service".to_string());
+    }
+
     let critical: &[(&str, &str)] = &[
-        ("mkfs",            "formats a drive — destroys all data permanently"),
-        ("dd if=",          "low-level disk write — can destroy entire drive"),
-        ("> /dev/sda",      "overwrites disk device directly"),
-        ("> /dev/nvme",     "overwrites disk device directly"),
-        ("chmod -R 777 /",  "removes all security permissions from root"),
-        (":(){ :|:& };:",   "fork bomb — crashes the entire system"),
-        ("shutdown",        "shuts down the system"),
-        ("poweroff",        "powers off the system"),
-        ("halt",            "halts the system"),
-        ("reboot",          "reboots the system"),
-        ("kill -9 -1",      "kills all processes — crashes the session"),
-        ("killall -9",      "force kills all matching processes"),
+        ("mkfs",             "formats a drive — destroys all data permanently"),
+        ("dd if=",           "low-level disk write — can destroy entire drive"),
+        ("dd if=/dev/zero",  "overwrites device with zeros — destroys data"),
+        ("dd if=/dev/random","overwrites device with random data"),
+        ("> /dev/sda",       "overwrites disk device directly"),
+        ("> /dev/nvme",      "overwrites disk device directly"),
+        ("> /etc/passwd",    "overwrites system user database"),
+        ("> /etc/shadow",    "overwrites system password database"),
+        ("> /etc/hosts",     "overwrites system hosts file"),
+        ("chmod 000 /etc",   "removes all permissions from system config"),
+        ("chmod -R 777 /",   "removes all security permissions from root"),
+        (":(){ :|:& };:",    "fork bomb — crashes the entire system"),
+        ("shutdown",         "shuts down the system"),
+        ("poweroff",         "powers off the system"),
+        ("halt",             "halts the system"),
+        ("reboot",           "reboots the system"),
+        ("kill -9 -1",       "kills all processes — crashes the session"),
+        ("killall -9",       "force kills all matching processes"),
+        ("fdisk /dev/",      "modifies disk partitions — can destroy data"),
+        ("parted /dev/",     "modifies disk partitions — can destroy data"),
+        ("wipefs",           "erases filesystem signatures from device"),
+        ("rm -rf *",         "deletes all files in current directory"),
+        ("rm -rf .",         "deletes current directory and all contents"),
+        ("rm -r /*",         "deletes entire filesystem"),
+        ("rm -r *",          "deletes all files in current directory"),
     ];
 
     for (pattern, reason) in critical {
@@ -60,23 +107,31 @@ pub fn check(command: &str) -> RiskLevel {
     }
 
     let high: &[(&str, &str)] = &[
-        ("rm -rf",          "permanently deletes files and folders"),
-        ("rm -f",           "force deletes without confirmation"),
-        ("curl | bash",     "executes remote code directly"),
-        ("curl | sh",       "executes remote code directly"),
-        ("wget | bash",     "executes remote code directly"),
-        ("wget | sh",       "executes remote code directly"),
-        ("bash <(curl",     "executes remote code directly"),
-        ("sh <(curl",       "executes remote code directly"),
-        ("bash <(wget",     "executes remote code directly"),
-        ("chmod -R",        "recursively changes file permissions"),
-        ("chown -R",        "recursively changes file ownership"),
-        ("sudo rm",         "removes files with elevated privileges"),
-        ("sudo chmod",      "changes permissions with elevated privileges"),
-        ("sudo chown",      "changes ownership with elevated privileges"),
-        ("> /etc/",         "overwrites system config file"),
-        ("pkill -9",        "forcefully kills processes"),
-        ("kill -9",         "forcefully kills a process"),
+        ("rm -rf",           "permanently deletes files and folders"),
+        ("rm -f",            "force deletes without confirmation"),
+        ("chmod -R",         "recursively changes file permissions"),
+        ("chown -R",         "recursively changes file ownership"),
+        ("sudo rm",          "removes files with elevated privileges"),
+        ("sudo chmod",       "changes permissions with elevated privileges"),
+        ("sudo chown",       "changes ownership with elevated privileges"),
+        ("> /etc/",          "overwrites system config file"),
+        ("pkill -9",         "forcefully kills processes"),
+        ("kill -9",          "forcefully kills a process"),
+        ("find / -delete",   "deletes files recursively from root"),
+        ("find . -delete",   "deletes all files in current directory"),
+        ("find ~ -delete",   "deletes all files in home directory"),
+        ("find -delete",     "deletes files matching criteria"),
+        ("systemctl stop",   "stops a system service"),
+        ("systemctl disable","disables a system service"),
+        ("systemctl mask",   "masks a system service permanently"),
+        ("shred",            "permanently overwrites and deletes files"),
+        ("wipe",             "permanently wipes files or devices"),
+        ("iptables -F",      "flushes all firewall rules"),
+        ("ufw disable",      "disables the firewall"),
+        ("sudo su",          "switches to root user"),
+        ("sudo -i",          "opens root shell"),
+        ("sudo bash",        "opens root bash shell"),
+        ("sudo sh",          "opens root shell"),
     ];
 
     for (pattern, reason) in high {
@@ -86,17 +141,17 @@ pub fn check(command: &str) -> RiskLevel {
     }
 
     let medium: &[(&str, &str)] = &[
-        ("sudo apt",        "modifies system packages"),
-        ("sudo dnf",        "modifies system packages"),
-        ("sudo pacman",     "modifies system packages"),
-        ("sudo brew",       "modifies system packages"),
-        ("pip install",     "installs Python packages"),
-        ("npm install -g",  "installs global Node packages"),
-        ("cargo install",   "installs Rust binary globally"),
-        ("git push",        "pushes changes to remote"),
-        ("git reset --hard","discards local changes permanently"),
-        ("mv ",             "moves or renames files"),
-        ("chmod ",          "changes file permissions"),
+        ("sudo apt",         "modifies system packages"),
+        ("sudo dnf",         "modifies system packages"),
+        ("sudo pacman",      "modifies system packages"),
+        ("sudo brew",        "modifies system packages"),
+        ("pip install",      "installs Python packages"),
+        ("npm install -g",   "installs global Node packages"),
+        ("cargo install",    "installs Rust binary globally"),
+        ("git push",         "pushes changes to remote"),
+        ("git reset --hard", "discards local changes permanently"),
+        ("mv ",              "moves or renames files"),
+        ("chmod ",           "changes file permissions"),
     ];
 
     for (pattern, reason) in medium {

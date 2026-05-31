@@ -83,7 +83,7 @@ pub fn run() {
                     println!("  {}", reason);
                     println!("  $ {}", input);
                     println!();
-                    print!("  Type 'I UNDERSTAND' to proceed ❯ ");
+                    print!("  Type 'I UNDERSTAND' to proceed or Any key to cancel ❯ ");
                     std::io::Write::flush(&mut std::io::stdout()).unwrap();
                     let mut confirm = String::new();
                     std::io::stdin().read_line(&mut confirm).unwrap();
