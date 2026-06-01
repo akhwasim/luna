@@ -293,8 +293,48 @@ fn display_and_confirm(res: LunaResponse) {
         return;
     }
 
+    // Run AI suggested command through safety engine
+    match crate::safety::check(&clean_command) {
+        crate::safety::RiskLevel::Critical(reason) => {
+            println!("  🚨 CRITICAL — Luna's suggestion was flagged as dangerous");
+            println!("  ─────────────────────────────────");
+            println!("  {}", reason);
+            println!("  $ {}", clean_command);
+            println!();
+            print!("  Type 'I UNDERSTAND' to proceed or any key to cancel ❯ ");
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+            let mut confirm = String::new();
+            std::io::stdin().read_line(&mut confirm).unwrap();
+            if confirm.trim() != "I UNDERSTAND" {
+                println!("  Blocked.");
+                println!();
+                return;
+            }
+            println!();
+        }
+        crate::safety::RiskLevel::High(_) => {
+            println!("  $ {}", clean_command);
+            println!("  Risk: HIGH ⚠️  {}", res.reason);
+            println!("  ─────────────────────────────────");
+            print!("  Execute? (y/n) ❯ ");
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+            if input.trim().to_lowercase() != "y" {
+                println!("  Skipped.");
+                println!();
+                return;
+            }
+            println!();
+            crate::commands::run(&clean_command);
+            return;
+        }
+        _ => {
+            // Medium or Safe — use AI's own risk label
+        }
+    }
+
     let looks_like_template = clean_command.contains('<')
-        
         || clean_command.contains("file_name")
         || clean_command.contains("folder_name")
         || clean_command.contains("image_name")
@@ -314,10 +354,10 @@ fn display_and_confirm(res: LunaResponse) {
     println!("  ─────────────────────────────────");
 
     print!("  Execute? (y/n) ❯ ");
-    io::stdout().flush().unwrap();
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
     let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
+    std::io::stdin().read_line(&mut input).unwrap();
 
     if input.trim().to_lowercase() == "y" {
         println!();

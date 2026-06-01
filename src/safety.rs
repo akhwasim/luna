@@ -22,12 +22,27 @@ fn is_root_deletion(cmd: &str) -> bool {
         "mv $HOME",
         "mv \"$HOME\"",
     ];
+
     for pattern in &dangerous {
-        if cmd == *pattern
-            || cmd.starts_with(&format!("{} ", pattern.trim()))
-            || cmd.trim() == pattern.trim()
-            || cmd.contains(pattern)  // catches (rm -rf /) and sudo sudo rm -rf /
-        {
+        let trimmed = pattern.trim();
+
+        // Exact match
+        if cmd == trimmed {
+            return true;
+        }
+
+        // Starts with pattern — catches "rm -rf / something"
+        if cmd.starts_with(&format!("{} ", trimmed)) {
+            return true;
+        }
+
+        // For subshell wrapping — catches "(rm -rf /)"
+        if cmd.starts_with('(') && cmd.contains(trimmed) {
+            return true;
+        }
+
+        // For double sudo — catches "sudo sudo rm -rf /"
+        if cmd.starts_with("sudo") && cmd.contains(trimmed) {
             return true;
         }
     }
