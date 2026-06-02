@@ -15,62 +15,60 @@
 
 ---
 
-## The Problem With Every Terminal You've Ever Used
+## The Problem
 
-Close it. Reopen it.
+Every terminal you've ever used has the same flaw.
 
-It doesn't know who you are. It doesn't know what you were working on. It doesn't remember the error you spent three hours fixing last Tuesday, or the fix that actually worked, or that you always run the same four commands every time you start a session.
+Close it. Reopen it. It doesn't know who you are. It doesn't know what you were working on. It doesn't remember the error you spent three hours fixing last Tuesday, the fix that finally worked, or that you always run the same four commands at the start of every session.
 
 It just blinks at you. Empty. Again.
 
 That's not a missing feature. That's amnesia. And every terminal has it.
 
-**Luna is the cure.**
+**Luna is the fix.**
 
 ---
 
-## What Luna Actually Is
+## What Luna Is
 
-Luna is not an AI assistant bolted onto a terminal.
-Luna is not autocomplete with a ChatGPT wrapper.
-Luna is not another plugin for your existing shell.
+Luna is a **standalone intelligent terminal** — a compiled Rust binary that replaces your shell entirely.
 
-Luna is a **standalone intelligent terminal** — a compiled Rust binary that replaces your shell entirely and gets smarter about how YOU work, every single day.
+Not a plugin. Not a wrapper. Not a chatbot glued to bash.
 
-The difference is fundamental:
+It understands natural language, executes commands safely, remembers everything across sessions, and gets smarter about how you specifically work — every single day.
 
 | Every other terminal | Luna |
 |---|---|
 | Forgets you the moment you close it | Remembers every command, every error, every session |
-| Generic suggestions for everyone | Learns your specific patterns and habits |
+| Same suggestions for everyone | Learns your specific patterns and habits |
 | Reacts to what you type | Anticipates what you need |
 | Stateless | Accumulates intelligence over time |
 
 ---
 
-## How Luna Thinks
+## How Luna Works
 
 ```
 You type a command
        ↓
-Luna executes it
+Safety Engine — deterministic risk analysis before anything runs
        ↓
-Luna remembers — command, directory, result, errors
+Execute — Luna runs the command natively
        ↓
-Luna notices patterns across sessions
+Error Analysis — failure triggers automatic AI-powered fix suggestion
        ↓
-Luna gets smarter about you specifically
+Fix verified — suggestion passes through same Safety Engine
        ↓
-Next session — Luna already knows where you left off
+Memory — command, result, directory, errors written to SQLite
+       ↓
+Learning — patterns detected across sessions over time
 ```
-
-Over days and weeks of use, Luna becomes more valuable to you than to anyone else — because she's learned how YOU work, not how the average developer works.
 
 ---
 
-## What Luna Can Do Right Now
+## What Luna Can Do Today
 
-### Understand Natural Language
+### Natural Language → Exact Command
 
 ```
 🌙 ~/projects/api ❯ /luna find all files modified in the last 7 days larger than 1MB
@@ -83,35 +81,30 @@ Over days and weeks of use, Luna becomes more valuable to you than to anyone els
   Execute? (y/n) ❯
 ```
 
-### Know Your Context
+### Context-Aware Suggestions
 
-Luna knows what project you're in, what you've been doing, and adapts automatically.
+Luna detects your project type and adapts automatically.
 
 ```
 🌙 ~/projects/api ❯ /luna how do I run this project
-
   ─────────────────────────────────
-  Run the project
   $ cargo run
-  Risk: LOW ✅  builds and runs
+  Risk: LOW ✅
   ─────────────────────────────────
   Execute? (y/n) ❯
 ```
 
 Switch to a Python project — she suggests `python3 main.py`.
 Switch to Node — she suggests `npm start`.
-Luna adapts automatically.
+No configuration. Luna reads the room.
 
-### Catch Errors Before You Do
-
-A command fails. Luna catches it, analyzes it, and suggests a fix — before you've even processed what went wrong.
+### Automatic Error Recovery
 
 ```
 🌙 ~/projects ❯ git psuh
 git: 'psuh' is not a git command.
 
 🌙 analyzing error...
-  🌙 Luna detected an error
   ─────────────────────────────────
   Typo in git command
   $ git push
@@ -120,7 +113,7 @@ git: 'psuh' is not a git command.
   Apply fix? (y/n) ❯
 ```
 
-### Remember Everything
+### Persistent Memory
 
 ```
 🌙 ~/projects ❯ history
@@ -135,76 +128,139 @@ git: 'psuh' is not a git command.
   ─────────────────────────────────
 ```
 
-Not just commands — directories, timestamps, what succeeded, what failed.
-All of it. Across sessions over time.
+Every command. Every directory. Every result. Across every session. Forever.
 
-### Never Run Blind
+---
 
-Every command gets a risk score. Every risky action requires your confirmation. Nothing happens silently.
+## Safety Layer
+
+Luna's safety system is **deterministic** — written entirely in Rust, not delegated to AI judgment.
+
+### Risk Classification
 
 ```
-  $ rm -rf /tmp/old_build
-  Risk: HIGH ⚠️  deletes files permanently
+LOW      → Read-only operations        (ls, cat, find, git status)
+MEDIUM   → System-modifying operations (apt install, git push, mv)
+HIGH     → Destructive operations      (rm -rf, kill -9, chmod -R)
+CRITICAL → Potentially irreversible    (rm -rf /, mkfs, dd, fork bomb)
+```
+
+### The Inspection Pipeline
+
+Every command — typed by you, suggested by AI, or generated as an error fix — passes through the same pipeline:
+
+```
+Input
+  ↓
+Root deletion check
+  ↓
+Remote execution check  (curl | bash, wget | sh)
+  ↓
+Shell payload extraction  (recursively inspects bash -c "...")
+  ↓
+Service modification check
+  ↓
+Pattern matching
+  ↓
+Risk verdict → CRITICAL / HIGH / MEDIUM / LOW
+```
+
+### CRITICAL — Requires Explicit Acknowledgement
+
+```
+🌙 ~/projects ❯ rm -rf /
+
+  🚨 CRITICAL — Extremely dangerous command
   ─────────────────────────────────
-  Execute? (y/n) ❯
+  deletes entire root filesystem
+  $ rm -rf /
+
+  Type 'I UNDERSTAND' to proceed or Any key to cancel ❯
 ```
 
-### Know Her Lane
+### Shell Wrapper Detection
+
+Luna extracts and inspects the payload inside shell wrappers recursively:
 
 ```
-🌙 ~/projects ❯ /luna what is the capital of France
+🌙 ~/projects ❯ bash -c "rm -rf /"
 
+  🚨 CRITICAL — Extremely dangerous command
   ─────────────────────────────────
-  I only help with terminal and system tasks.
-  ─────────────────────────────────
+  shell wrapper hides: deletes entire root filesystem
+
+  Type 'I UNDERSTAND' to proceed or Any key to cancel ❯
 ```
 
-Luna is a specialist. She has one job. She does it exceptionally well.
+### Verified Recovery
+
+When Luna suggests an error fix, that suggestion passes through the same safety engine before being shown to you. AI output is never trusted automatically.
+
+### Coverage
+
+- Filesystem deletion (root, home, current directory)
+- Shell wrapper bypasses (`bash -c`, `sudo sh -c`, `zsh -c`)
+- Remote code execution (`curl | bash`, `wget | sh`, `bash <(curl ...)`)
+- Command separator attacks (`ls ; rm -rf *`, `ls || rm -rf *`)
+- Subshell attacks (`(rm -rf /)`)
+- Double privilege escalation (`sudo sudo rm -rf /`)
+- Disk operations (`mkfs`, `dd if=/dev/zero`, `fdisk`, `wipefs`)
+- Fork bombs (`:(){ :|:& };:`)
+- Service manipulation (`systemctl stop`, `kill -9 -1`, `killall -9`)
+- System file overwrites (`> /etc/passwd`, `> /etc/shadow`)
 
 ---
 
 ## What's Coming
 
-This is where Luna stops being impressive and starts being indispensable.
-
 ### Learning Brain
-- Detects that you always run `git add && git commit && git push` together → offers to automate it
-- Notices you've made the same typo 3 times → suggests an alias or auto-corrects it permanently
-- Remembers that last time you were in this project, you were fixing a specific error
-- Clusters your errors over time — "your most common issue is permission errors, usually fixed with sudo"
 
-### Cross-Session Intelligence
-```
-🌙 ~/projects/api ❯ cd .
+This is where Luna becomes genuinely different.
 
-Luna: Last time you were here you were debugging
-      a connection timeout in main.rs.
-      cargo build was failing. Want to continue?
-```
+**Habit Detection**
+Luna watches your command sequences over time. When she sees the same pattern repeat — `git add` → `git commit` → `git push`, every single day — she offers to save it as a named workflow. One command instead of five.
 
+**Personalized Ranking**
+When the AI generates suggestions, Luna reorders them based on your actual history. If you've run `cargo run` 47 times and `cargo build` 12 times, Luna ranks `cargo run` first. Not because it's generally better — because it's what you do.
+
+**Error Clustering**
+Luna groups your errors over time into categories: dependency issues, permission errors, syntax mistakes, typos. Then tells you which category dominates your failures and what usually fixes it.
+
+The Learning Brain is designed to stay local,
+lightweight, and privacy-preserving.
 ### Your AI, Your Rules
-Luna will support multiple AI providers — choose on first launch and change anytime:
-- **Groq** (default) — free, fast, no GPU needed
-- **Your own API** — OpenAI, Anthropic, any provider
-- **Local model** — Ollama, fully offline, 100% private
-- **Hybrid** — local by default, cloud for complex tasks
 
-### Safety Layer
-- Blocks genuinely dangerous commands before they run
-- Detects production repositories and elevates risk automatically
-- Dry run mode — see what would happen without doing it
+Luna will support multiple AI providers on first launch:
+- **Groq** (default) — free tier, fast, no GPU needed
+- **Your own API** — OpenAI, Anthropic, any OpenAI-compatible provider
+- **Local model** — Ollama, fully offline, 100% private
+- **Hybrid** — local for everyday tasks, cloud for complex ones
 
 ---
 
-## Current Build Status
+## Technical Stack
+
+| Component | Technology | Why |
+|---|---|---|
+| Language | Rust (edition 2021) | Memory safety, zero runtime overhead |
+| Input handling | reedline | Production terminal line editor |
+| AI provider | Groq API | Free tier, fast inference |
+| Memory | SQLite via rusqlite | Local, embedded, no server |
+| HTTP client | reqwest + tokio | Async, non-blocking AI calls |
+| Serialization | serde + serde_json | Structured AI responses |
+| ML (planned) | linfa + candle | Pure Rust, no Python dependency |
+
+---
+
+## Build Status
 
 ```
 Phase 1 — Shell Core          ██████████  Complete
 Phase 2 — AI Brain            ██████████  Complete
 Phase 3 — Memory Engine       ██████████  Complete
 Phase 4 — Error Intelligence  ██████████  Complete
-Phase 5 — Safety Layer        ░░░░░░░░░░  In Progress
-Phase 6 — Learning Brain      ░░░░░░░░░░  Coming
+Phase 5 — Safety Layer        ██████████  Complete
+Phase 6 — Learning Brain      ░░░░░░░░░░  In Progress
 Phase 7 — UI & Themes         ░░░░░░░░░░  Coming
 Phase 8 — Distribution        ░░░░░░░░░░  Coming
 ```
@@ -231,21 +287,11 @@ echo "GROQ_API_KEY=your_key_here" > ~/.luna/.env
 
 ---
 
-## Why Rust
-
-No runtime. No garbage collector. No 200MB of dependencies sitting idle.
-
-Luna starts in milliseconds and uses the kind of memory that makes other terminals embarrassing. That's not a goal — it's a consequence of the language.
-
-A terminal assistant written in Python would use 200MB of RAM just sitting there. Luna uses less than 10MB. Always.
-
----
-
 ## The One Rule
 
 > *Luna never does anything you didn't see coming.*
 
-Before anything executes, you see it. Before anything changes, you approve it. Destructive patterns are intercepted. Nothing runs silently.
+Before anything executes, you see it. Before anything changes, you approve it. Destructive patterns are intercepted before they run. AI suggestions are verified before they're shown.
 
 Safety isn't a feature. It's the architecture.
 
@@ -253,11 +299,9 @@ Safety isn't a feature. It's the architecture.
 
 ## Why This Exists
 
-Every developer has a terminal they've used for years. It knows nothing about them. It will know nothing about them in ten years.
+Every developer has used the same kind of terminal for thirty years. It executes what you type and forgets everything the moment you close it.
 
-That's the problem. Luna is the answer.
-
-For the developers who live in the terminal and are tired of it being the dumbest tool in their stack.
+Luna is what a terminal would look like if it was designed today — with persistent memory, safety by default, and intelligence that accumulates over time rather than resetting every session.
 
 ---
 
