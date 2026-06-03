@@ -3,6 +3,7 @@ use crate::commands;
 use crate::ai;
 use crate::memory::Memory;
 use crate::safety;
+use crate::learner;
 
 // Luna shell — input loop and prompt
 
@@ -31,6 +32,42 @@ pub fn run() {
         match line_editor.read_line(&prompt) {
             Ok(Signal::Success(line)) => {
                 let input = line.trim().to_string();
+
+                // Handle luna workflow commands
+                if input == "luna workflow" || input == "luna workflow list" {
+                    learner::list_workflows(&memory);
+                    continue;
+                }
+
+                if input.starts_with("luna workflow create ") {
+                    let name = input.trim_start_matches("luna workflow create ").trim();
+                    learner::create_workflow_interactive(&memory, name);
+                    continue;
+                }
+
+                if input.starts_with("luna create ") {
+                    let name = input.trim_start_matches("luna create ").trim();
+                    learner::create_workflow_interactive(&memory, name);
+                    continue;
+                }
+
+                if input.starts_with("luna workflow run ") {
+                    let name = input.trim_start_matches("luna workflow run ").trim();
+                    learner::run_workflow(&memory, name);
+                    continue;
+                }
+
+                if input.starts_with("luna workflow delete ") {
+                    let name = input.trim_start_matches("luna workflow delete ").trim();
+                    learner::delete_workflow(&memory, name);
+                    continue;
+                }
+
+                if input.starts_with("luna delete ") {
+                    let name = input.trim_start_matches("luna delete ").trim();
+                    learner::delete_workflow(&memory, name);
+                    continue;
+                }
 
                 if input.is_empty() {
                     continue;
@@ -73,9 +110,24 @@ pub fn run() {
                     continue;
                 }
 
+                if input == "luna workflows" {
+                    learner::list_workflows(&memory);
+                    continue;
+                }
+
+                if input == "luna stats" {
+                    println!("\n  luna stats coming soon.\n");
+                    continue;
+                }
+
+                if input.starts_with("luna run ") {
+                    let name = input.trim_start_matches("luna run ").trim();
+                    learner::run_workflow(&memory, name);
+                    continue;
+                }
+
                 // Safety check before execution
-                // Safety check before execution
-            match safety::check(&input) {
+                match safety::check(&input) {
                 safety::RiskLevel::Critical(reason) => {
                     println!();
                     println!("  🚨 CRITICAL — Extremely dangerous command");
@@ -117,7 +169,7 @@ pub fn run() {
                     println!();
                 }
                 safety::RiskLevel::Safe => {}
-            }
+                }
 
                 // Save and execute
                 let cwd = std::env::current_dir()
@@ -128,7 +180,8 @@ pub fn run() {
                 let result = commands::run(&input);
                 memory.save_command(&input, &cwd, result.success);
 
-                // Error detection
+                learner::check_and_suggest(&memory, &input);
+
                 // Error detection
                 if !result.success && !result.error_output.is_empty() {
                     let is_permission_error = result.error_output.contains("Permission denied")

@@ -22,24 +22,42 @@ impl Memory {
     }
 
     fn init(&self) -> Result<()> {
-        self.conn.execute_batch("
-            CREATE TABLE IF NOT EXISTS commands (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                command   TEXT NOT NULL,
-                directory TEXT NOT NULL,
-                success   INTEGER NOT NULL DEFAULT 1,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
+    self.conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS commands (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            command   TEXT NOT NULL,
+            directory TEXT NOT NULL,
+            success   INTEGER NOT NULL DEFAULT 1,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
 
-            CREATE TABLE IF NOT EXISTS errors (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                command   TEXT NOT NULL,
-                error     TEXT NOT NULL,
-                fix       TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-        ")
-    }
+        CREATE TABLE IF NOT EXISTS errors (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            command   TEXT NOT NULL,
+            error     TEXT NOT NULL,
+            fix       TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS workflows (
+            name      TEXT PRIMARY KEY,
+            commands  TEXT NOT NULL,
+            use_count INTEGER DEFAULT 0,
+            created   DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS autocorrect (
+            wrong     TEXT PRIMARY KEY,
+            correct   TEXT NOT NULL,
+            count     INTEGER DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS rejected_patterns (
+            pattern TEXT PRIMARY KEY,
+            created DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    ")
+}
 
     pub fn save_command(&self, command: &str, directory: &str, success: bool) {
         let _ = self.conn.execute(
@@ -145,7 +163,118 @@ impl Memory {
         }
         println!();
     }
+
+    pub fn save_workflow(&self, name: &str, commands: &[String]) {
+    let commands_json = serde_json::to_string(commands).unwrap_or_default();
+    let _ = self.conn.execute(
+        "INSERT OR REPLACE INTO workflows (name, commands) VALUES (?1, ?2)",
+        params![name, commands_json],
+    );
+    }
+
+    pub fn get_workflow(&self, name: &str) -> Option<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT commands FROM workflows WHERE name = ?1"
+        ).ok()?;
+
+        let result: Option<String> = stmt.query_row(
+            params![name],
+            |row| row.get(0)
+        ).ok();
+
+        result.and_then(|s| serde_json::from_str(&s).ok())
+    }
+
+    pub fn list_workflows(&self) -> Vec<(String, Vec<String>)> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT name, commands FROM workflows ORDER BY use_count DESC"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        stmt.query_map(params![], |row| {
+            let name: String = row.get(0)?;
+            let cmds: String = row.get(1)?;
+            Ok((name, cmds))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .filter_map(|(name, cmds)| {
+            serde_json::from_str::<Vec<String>>(&cmds)
+                .ok()
+                .map(|c| (name, c))
+        })
+        .collect()
+    }
+
+    pub fn increment_workflow_use(&self, name: &str) {
+        let _ = self.conn.execute(
+            "UPDATE workflows SET use_count = use_count + 1 WHERE name = ?1",
+            params![name],
+        );
+    }
+
+    pub fn get_command_frequency(&self, command: &str) -> usize {
+        let mut stmt = match self.conn.prepare(
+            "SELECT COUNT(*) FROM commands WHERE command = ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return 0,
+        };
+
+        stmt.query_row(params![command], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap_or(0) as usize
+    }
+
+    pub fn get_commands_for_pattern_detection(&self, limit: usize) -> Vec<(String, String)> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT command, directory FROM commands 
+            WHERE success = 1 
+            ORDER BY timestamp DESC 
+            LIMIT ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        stmt.query_map(params![limit as i64], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    pub fn is_pattern_rejected(&self, pattern_key: &str) -> bool {
+    let mut stmt = match self.conn.prepare(
+        "SELECT COUNT(*) FROM rejected_patterns WHERE pattern = ?1"
+    ) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    stmt.query_row(params![pattern_key], |row| {
+        row.get::<_, i64>(0)
+    }).unwrap_or(0) > 0
+    }
+
+    pub fn reject_pattern(&self, pattern_key: &str) {
+        let _ = self.conn.execute(
+            "INSERT OR IGNORE INTO rejected_patterns (pattern) VALUES (?1)",
+            params![pattern_key],
+        );
+    }
+
+    pub fn remove_workflow(&self, name: &str) {
+    let _ = self.conn.execute(
+        "DELETE FROM workflows WHERE name = ?1",
+        params![name],
+    );
+    }
 }
+
 
 fn detect_project_type() -> &'static str {
     let mut dir = std::env::current_dir().unwrap_or_default();
