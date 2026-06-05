@@ -42,7 +42,8 @@ fn is_root_deletion(cmd: &str) -> bool {
         }
 
         // For double sudo — catches "sudo sudo rm -rf /"
-        if cmd.starts_with("sudo") && cmd.contains(trimmed) {
+        // For double sudo — catches "sudo sudo rm -rf /"
+        if cmd.starts_with("sudo sudo") && cmd.contains(trimmed) {
             return true;
         }
     }

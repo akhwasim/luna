@@ -19,27 +19,24 @@ pub fn detect_habits(memory: &Memory) -> Option<DetectedPattern> {
     }
 
     let commands: Vec<String> = history
-    .into_iter()
-    .map(|(cmd, _)| cmd)
-    .collect::<Vec<_>>()
-    .into_iter()
-    .rev()  // reverse so oldest is first — correct chronological order
-    .collect();
+        .into_iter()
+        .map(|(cmd, _)| cmd)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
 
-    // Look for repeating sequences of SEQUENCE_LENGTH commands
     let mut pattern_counts: std::collections::HashMap<Vec<String>, usize> =
         std::collections::HashMap::new();
 
     for window in commands.windows(SEQUENCE_LENGTH) {
         let pattern: Vec<String> = window.to_vec();
 
-        // Skip patterns with duplicate commands — not useful workflows
         let unique: std::collections::HashSet<&String> = pattern.iter().collect();
         if unique.len() < pattern.len() {
             continue;
         }
 
-        // Skip patterns where all commands are the same type
         if pattern.iter().all(|c| c.starts_with("cd ")) {
             continue;
         }
@@ -47,7 +44,6 @@ pub fn detect_habits(memory: &Memory) -> Option<DetectedPattern> {
         *pattern_counts.entry(pattern).or_insert(0) += 1;
     }
 
-    // Find most common pattern that hits threshold
     pattern_counts
         .into_iter()
         .filter(|(_, count)| *count >= HABIT_THRESHOLD)
@@ -56,7 +52,6 @@ pub fn detect_habits(memory: &Memory) -> Option<DetectedPattern> {
 }
 
 pub fn check_and_suggest(memory: &Memory, input: &str) {
-    // Don't trigger on built-in commands
     let skip_commands = ["clear", "cls", "history", "exit", "quit"];
     if skip_commands.contains(&input.trim()) || input.starts_with("luna ") {
         return;
@@ -70,11 +65,20 @@ pub fn check_and_suggest(memory: &Memory, input: &str) {
     if let Some(pattern) = detect_habits(memory) {
         let pattern_key = pattern.commands.join("→");
 
-        // Don't suggest if already saved or rejected
         if memory.get_workflow(&pattern_key).is_some() {
             return;
         }
         if memory.is_pattern_rejected(&pattern_key) {
+            return;
+        }
+
+        let has_dangerous = pattern.commands.iter().any(|cmd| {
+            matches!(
+                crate::safety::check(cmd),
+                crate::safety::RiskLevel::Critical(_) | crate::safety::RiskLevel::High(_)
+            )
+        });
+        if has_dangerous {
             return;
         }
 
@@ -108,7 +112,6 @@ pub fn check_and_suggest(memory: &Memory, input: &str) {
                 println!();
             }
         } else {
-            // Remember rejection — don't ask again
             memory.reject_pattern(&pattern_key);
             println!("  Got it. Luna won't suggest this again.");
             println!();
@@ -136,7 +139,37 @@ pub fn run_workflow(memory: &Memory, name: &str) {
 
             memory.increment_workflow_use(name);
             println!();
+
             for cmd in &commands {
+                match crate::safety::check(cmd) {
+                    crate::safety::RiskLevel::Critical(reason) => {
+                        println!("  🚨 CRITICAL — {}", reason);
+                        println!("  $ {}", cmd);
+                        print!("  Type 'I UNDERSTAND' to run this step ❯ ");
+                        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                        let mut c = String::new();
+                        std::io::stdin().read_line(&mut c).unwrap();
+                        if c.trim() != "I UNDERSTAND" {
+                            println!("  Step blocked. Workflow stopped.");
+                            println!();
+                            return;
+                        }
+                    }
+                    crate::safety::RiskLevel::High(reason) => {
+                        println!("  ⚠️  HIGH RISK — {}", reason);
+                        println!("  $ {}", cmd);
+                        print!("  Run this step? (y/n) ❯ ");
+                        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                        let mut c = String::new();
+                        std::io::stdin().read_line(&mut c).unwrap();
+                        if c.trim().to_lowercase() != "y" {
+                            println!("  Step blocked. Workflow stopped.");
+                            println!();
+                            return;
+                        }
+                    }
+                    _ => {}
+                }
                 println!("  $ {}", cmd);
                 crate::commands::run(cmd);
                 println!();
@@ -178,7 +211,7 @@ pub fn create_workflow_interactive(memory: &Memory, name: &str) {
         std::io::stdin().read_line(&mut cmd).unwrap();
         let cmd = cmd.trim().to_string();
 
-        if cmd.is_empty() {
+        if cmd.is_empty() || cmd.to_lowercase() == "done" {
             break;
         }
 
@@ -192,12 +225,49 @@ pub fn create_workflow_interactive(memory: &Memory, name: &str) {
         return;
     }
 
-    // Detect placeholders
+    println!();
+    let mut blocked = false;
+    for cmd in &commands {
+        match crate::safety::check(cmd) {
+            crate::safety::RiskLevel::Critical(reason) => {
+                println!("  🚨 CRITICAL command in workflow: '{}'", cmd);
+                println!("  Reason: {}", reason);
+                print!("  This is extremely dangerous. Type 'I UNDERSTAND' to include or 'n' to cancel ❯ ");
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                let mut confirm = String::new();
+                std::io::stdin().read_line(&mut confirm).unwrap();
+                if confirm.trim() != "I UNDERSTAND" {
+                    println!("  Workflow not saved.");
+                    blocked = true;
+                    break;
+                }
+            }
+            crate::safety::RiskLevel::High(reason) => {
+                println!("  ⚠️  HIGH RISK command in workflow: '{}'", cmd);
+                println!("  Reason: {}", reason);
+                print!("  Include it anyway? (y/n) ❯ ");
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                let mut confirm = String::new();
+                std::io::stdin().read_line(&mut confirm).unwrap();
+                if confirm.trim().to_lowercase() != "y" {
+                    println!("  Workflow not saved.");
+                    blocked = true;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if blocked {
+        println!();
+        return;
+    }
+
     let mut has_placeholders = false;
     for cmd in &commands {
         if let Some(label) = needs_runtime_input(cmd) {
             if !has_placeholders {
-                println!();
                 println!("  Luna detected commands that need input at runtime:");
                 has_placeholders = true;
             }
@@ -251,6 +321,7 @@ pub fn list_workflows(memory: &Memory) {
         println!();
         println!("  No workflows saved yet.");
         println!("  Luna will suggest workflows when she detects patterns.");
+        println!("  Or create one with: luna create <name>");
         println!();
         return;
     }
@@ -262,6 +333,7 @@ pub fn list_workflows(memory: &Memory) {
         println!("  {} → {}", name, commands.join(" → "));
     }
     println!();
-    println!("  Run with: luna run <name>");
+    println!("  Run:    luna run <name>");
+    println!("  Delete: luna delete <name>");
     println!();
 }
