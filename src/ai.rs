@@ -48,12 +48,13 @@ Git commands are always standard git commands regardless of project type — nev
 Examples of correct git commands: git init, git checkout -b <branch-name>, git add, git commit, git push. \
 Never suggest cargo new or cargo add for git operations. \
 For generic how-to questions not tied to a specific path always use placeholders like <folder-name> <filename> <branch-name>. \
-Always respond in this exact JSON format: \
 Never suggest --no-preserve-root in any command. This flag bypasses a critical Linux safety mechanism. \
 Never suggest commands that could destroy the root filesystem. \
-{ \"explanation\": \"short explanation\", \"command\": \"exact command or empty string\", \"risk\": \"low|medium|high\", \"reason\": \"short reason\" } \
+Always respond in this exact JSON format: \
+{ \"explanation\": \"short explanation\", \"command\": \"best command\", \"risk\": \"low|medium|high\", \"reason\": \"short reason\", \"alternatives\": [\"second option\", \"third option\"] } \
+The alternatives array should contain 2 other valid approaches if they exist, or empty array [] if not. \
 If request is not terminal/system related respond: \
-{ \"explanation\": \"I only help with terminal and system tasks.\", \"command\": \"\", \"risk\": \"low\", \"reason\": \"out of scope request\" }";
+{ \"explanation\": \"I only help with terminal and system tasks.\", \"command\": \"\", \"risk\": \"low\", \"reason\": \"out of scope request\", \"alternatives\": [] }";
 
 #[derive(Serialize)]
 struct Message {
@@ -89,6 +90,7 @@ struct LunaResponse {
     command: String,
     risk: String,
     reason: String,
+    alternatives: Option<Vec<String>>,
 }
 
 fn sanitize_command(cmd: &str) -> String {
@@ -199,7 +201,7 @@ pub async fn ask(query: &str, api_key: &str, context: &str) {
                                 };
                                 luna_res.command = String::new();
                             }
-                            display_and_confirm(luna_res);
+                            display_and_confirm(luna_res, Some(context));
                         }
                         Err(_) => println!("\r🌙 {}", content),
                     }
@@ -262,7 +264,8 @@ pub async fn fix_error(command: &str, error: &str, api_key: &str, context: &str)
                         Ok(luna_res) => {
                             println!("\r");
                             println!("  🌙 Luna detected an error");
-                            display_and_confirm(luna_res);
+                            println!("  ─────────────────────────────────");
+                            display_and_confirm(luna_res, None);
                         }
                         Err(_) => println!("\r🌙 {}", content),
                     }
@@ -274,7 +277,7 @@ pub async fn fix_error(command: &str, error: &str, api_key: &str, context: &str)
     }
 }
 
-fn display_and_confirm(res: LunaResponse) {
+fn display_and_confirm(res: LunaResponse, memory_ref: Option<&str>) {
     let clean_command = sanitize_command(&res.command);
 
     let risk_label = match res.risk.as_str() {
@@ -293,7 +296,13 @@ fn display_and_confirm(res: LunaResponse) {
         return;
     }
 
-    // Run AI suggested command through safety engine
+    let is_preferred = memory_ref
+        .map(|ctx| ctx.contains(&clean_command))
+        .unwrap_or(false);
+
+    let preferred_label = if is_preferred { " ⭐ based on your history" } else { "" };
+
+
     match crate::safety::check(&clean_command) {
         crate::safety::RiskLevel::Critical(reason) => {
             println!("  🚨 CRITICAL — Luna's suggestion was flagged as dangerous");
@@ -313,14 +322,19 @@ fn display_and_confirm(res: LunaResponse) {
             println!();
         }
         crate::safety::RiskLevel::High(_) => {
-            println!("  $ {}", clean_command);
+            println!("  $ {}{}", clean_command, preferred_label);
             println!("  Risk: HIGH ⚠️  {}", res.reason);
             println!("  ─────────────────────────────────");
-            print!("  Execute? (y/n) ❯ ");
+            print!("  Execute? (y/n/more) ❯ ");
             std::io::Write::flush(&mut std::io::stdout()).unwrap();
             let mut input = String::new();
             std::io::stdin().read_line(&mut input).unwrap();
-            if input.trim().to_lowercase() != "y" {
+            let input = input.trim().to_lowercase();
+            if input == "more" {
+                show_alternatives(&res.alternatives, risk_label, &clean_command);
+                return;
+            }
+            if input != "y" {
                 println!("  Skipped.");
                 println!();
                 return;
@@ -329,9 +343,7 @@ fn display_and_confirm(res: LunaResponse) {
             crate::commands::run(&clean_command);
             return;
         }
-        _ => {
-            // Medium or Safe — use AI's own risk label
-        }
+        _ => {}
     }
 
     let looks_like_template = clean_command.contains('<')
@@ -342,28 +354,93 @@ fn display_and_confirm(res: LunaResponse) {
         || clean_command.contains("your_");
 
     if looks_like_template {
-        println!("  $ {}", clean_command);
+        println!("  $ {}{}", clean_command, preferred_label);
         println!("  Risk: {}  {}", risk_label, res.reason);
         println!("  ─────────────────────────────────");
         println!();
         return;
     }
 
-    println!("  $ {}", clean_command);
+    println!("  $ {}{}", clean_command, preferred_label);
     println!("  Risk: {}  {}", risk_label, res.reason);
     println!("  ─────────────────────────────────");
 
-    print!("  Execute? (y/n) ❯ ");
+    print!("  Execute? (y/n/more) ❯ ");
     std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
+    let input = input.trim().to_lowercase();
 
-    if input.trim().to_lowercase() == "y" {
+    if input == "more" {
+        show_alternatives(&res.alternatives, risk_label, &clean_command);
+        return;
+    }
+
+    if input == "y" {
         println!();
         crate::commands::run(&clean_command);
     } else {
         println!("  Skipped.");
     }
     println!();
+}
+
+fn show_alternatives(alternatives: &Option<Vec<String>>, risk_label: &str, original: &str) {
+    match alternatives {
+        Some(alts) if !alts.is_empty() => {
+            println!();
+            println!("  All options:");
+            println!("  ─────────────────────────────────");
+            println!("  1. $ {}", original);
+            for (i, alt) in alts.iter().enumerate() {
+                println!("  {}. $ {}", i + 2, alt);
+            }
+            println!("  ─────────────────────────────────");
+            print!("  Choose (1-{}) or n to skip ❯ ", alts.len() + 1);
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+            let input = input.trim();
+
+            if input.to_lowercase() == "n" {
+                println!("  Skipped.");
+                return;
+            }
+
+            if let Ok(n) = input.parse::<usize>() {
+                let cmd = if n == 1 {
+                    original.to_string()
+                } else if n >= 2 && n <= alts.len() + 1 {
+                    alts[n - 2].clone()
+                } else {
+                    println!("  Invalid option.");
+                    return;
+                };
+
+                println!();
+                println!("  $ {}", cmd);
+                println!("  Risk: {}", risk_label);
+                println!("  ─────────────────────────────────");
+                print!("  Execute? (y/n) ❯ ");
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                let mut confirm = String::new();
+                std::io::stdin().read_line(&mut confirm).unwrap();
+                if confirm.trim().to_lowercase() == "y" {
+                    println!();
+                    crate::commands::run(&cmd);
+                } else {
+                    println!("  Skipped.");
+                }
+            } else {
+                println!("  Skipped.");
+            }
+        }
+        _ => {
+            println!();
+            println!("  No alternatives available.");
+            println!();
+        }
+    }
 }
