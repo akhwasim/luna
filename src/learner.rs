@@ -119,12 +119,105 @@ pub fn check_and_suggest(memory: &Memory, input: &str) {
     }
 }
 
+// Detect if a command needs runtime input and return (label, how to insert)
+fn needs_runtime_input(cmd: &str) -> Option<(String, RuntimeInputType)> {
+    let trimmed = cmd.trim();
+
+    // git commit -m with no message
+    if trimmed == "git commit -m"
+        || trimmed.ends_with(" -m")
+        || (trimmed.contains("git commit") && !trimmed.contains("-m \"") && !trimmed.contains("-m '") && trimmed.contains("-m"))
+    {
+        return Some(("Commit message".to_string(), RuntimeInputType::GitCommit));
+    }
+
+    // git checkout -b with no branch name
+    if trimmed == "git checkout -b"
+        || trimmed == "git switch -c"
+    {
+        return Some(("Branch name".to_string(), RuntimeInputType::Append));
+    }
+
+    // git merge with no branch
+    if trimmed == "git merge" {
+        return Some(("Branch to merge".to_string(), RuntimeInputType::Append));
+    }
+
+    // docker build -t with no image name
+    if trimmed == "docker build -t" || trimmed.ends_with(" -t") && trimmed.contains("docker build") {
+        return Some(("Image name".to_string(), RuntimeInputType::Append));
+    }
+
+    // docker run with no image
+    if trimmed == "docker run" || trimmed == "docker run -it" {
+        return Some(("Image name".to_string(), RuntimeInputType::Append));
+    }
+
+    // ssh with no host
+    if trimmed == "ssh" {
+        return Some(("Host (user@hostname)".to_string(), RuntimeInputType::Append));
+    }
+
+    None
+}
+
+enum RuntimeInputType {
+    GitCommit,  // insert as: git commit -m "input"
+    Append,     // append to end of command
+}
+
+fn resolve_command(cmd: &str) -> String {
+    match needs_runtime_input(cmd) {
+        None => cmd.to_string(),
+        Some((label, input_type)) => {
+            print!("  {} ❯ ", label);
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
+            let mut user_input = String::new();
+            std::io::stdin().read_line(&mut user_input).unwrap();
+            let user_input = user_input.trim();
+
+            match input_type {
+                RuntimeInputType::GitCommit => {
+                    // Build proper git commit -m "message"
+                    let base = if cmd.trim().ends_with("-m") {
+                        cmd.trim().to_string()
+                    } else {
+                        // Strip any partial message and rebuild
+                        let parts: Vec<&str> = cmd.trim().splitn(3, ' ').collect();
+                        if parts.len() >= 2 {
+                            format!("git commit -m")
+                        } else {
+                            "git commit -m".to_string()
+                        }
+                    };
+                    format!("{} \"{}\"", base, user_input)
+                }
+                RuntimeInputType::Append => {
+                    format!("{} {}", cmd.trim(), user_input)
+                }
+            }
+        }
+    }
+}
+
 pub fn run_workflow(memory: &Memory, name: &str) {
     match memory.get_workflow(name) {
         Some(commands) => {
             println!();
             println!("  Running '{}' ({} commands)", name, commands.len());
             println!("  → {}", commands.join(" → "));
+
+            // Show which steps need input
+            let needs_input: Vec<bool> = commands.iter()
+                .map(|cmd| needs_runtime_input(cmd).is_some())
+                .collect();
+
+            if needs_input.iter().any(|&n| n) {
+                println!();
+                println!("  Some steps will ask for input when reached.");
+            }
+
             print!("  Press Enter to run or 'n' to cancel ❯ ");
             std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
@@ -141,6 +234,7 @@ pub fn run_workflow(memory: &Memory, name: &str) {
             println!();
 
             for cmd in &commands {
+                // Safety check first
                 match crate::safety::check(cmd) {
                     crate::safety::RiskLevel::Critical(reason) => {
                         println!("  🚨 CRITICAL — {}", reason);
@@ -170,8 +264,11 @@ pub fn run_workflow(memory: &Memory, name: &str) {
                     }
                     _ => {}
                 }
-                println!("  $ {}", cmd);
-                crate::commands::run(cmd);
+
+                // Resolve runtime input if needed
+                let resolved = resolve_command(cmd);
+                println!("  $ {}", resolved);
+                crate::commands::run(&resolved);
                 println!();
             }
             println!();
@@ -264,14 +361,15 @@ pub fn create_workflow_interactive(memory: &Memory, name: &str) {
         return;
     }
 
+    // Show placeholder warnings at creation time
     let mut has_placeholders = false;
     for cmd in &commands {
-        if let Some(label) = needs_runtime_input(cmd) {
+        if let Some((label, _)) = needs_runtime_input(cmd) {
             if !has_placeholders {
-                println!("  Luna detected commands that need input at runtime:");
+                println!("  Note: some commands will ask for input at runtime:");
                 has_placeholders = true;
             }
-            println!("  '{}' will ask for: {}", cmd, label);
+            println!("  → '{}' will ask for: {}", cmd, label);
         }
     }
 
@@ -296,22 +394,6 @@ pub fn delete_workflow(memory: &Memory, name: &str) {
             println!();
         }
     }
-}
-
-fn needs_runtime_input(cmd: &str) -> Option<String> {
-    if cmd.trim() == "git commit -m" || cmd.contains("git commit -m \"\"") {
-        return Some("Commit message".to_string());
-    }
-    if cmd.contains("git checkout -b") && !cmd.contains(" ") {
-        return Some("Branch name".to_string());
-    }
-    if cmd.contains("git merge") && cmd.trim() == "git merge" {
-        return Some("Branch name".to_string());
-    }
-    if cmd.contains("docker build -t") && cmd.trim().ends_with("-t") {
-        return Some("Image name".to_string());
-    }
-    None
 }
 
 pub fn list_workflows(memory: &Memory) {
