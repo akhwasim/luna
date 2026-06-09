@@ -4,6 +4,7 @@ use crate::ai;
 use crate::memory::Memory;
 use crate::safety;
 use crate::learner;
+use crate::stats;
 
 // Luna shell — input loop and prompt
 
@@ -11,6 +12,48 @@ fn load_env() {
     let home = std::env::var("HOME").unwrap_or_default();
     let env_path = format!("{}/.luna/.env", home);
     let _ = dotenvy::from_path(env_path);
+}
+
+fn suggest_builtin(cmd: &str) -> Option<&'static str> {
+    let typos = [
+        ("cler",   "clear"),
+        ("clera",  "clear"),
+        ("celar",  "clear"),
+        ("clean",  "clear"),
+        ("cleat",  "clear"),
+        ("exot",   "exit"),
+        ("exut",   "exit"),
+        ("ecit",   "exit"),
+        ("exiy",   "exit"),
+        ("exiit",  "exit"),
+        ("dc",     "cd"),
+        ("cs",     "cd"),
+        ("pdw",    "pwd"),
+        ("pws",    "pwd"),
+        ("vm",     "vim"),
+        ("vom",    "vim"),
+        ("gut",    "git"),
+        ("gti",    "git"),
+        ("got",    "git"),
+        ("gig",    "git"),
+        ("py",     "python3"),
+        ("pyhton", "python3"),
+        ("pytohn", "python3"),
+        ("pythno", "python3"),
+        ("ndoe",   "node"),
+        ("nod",    "node"),
+        ("dokcer", "docker"),
+        ("dcoker", "docker"),
+        ("sl",     "ls"),
+        ("kl",     "ls"),
+    ];
+
+    for (wrong, correct) in &typos {
+        if cmd == *wrong {
+            return Some(correct);
+        }
+    }
+    None
 }
 
 pub fn run() {
@@ -26,14 +69,13 @@ pub fn run() {
 
     let mut line_editor = Reedline::create();
 
-    loop {
+    'main: loop {
         let prompt = build_prompt();
 
         match line_editor.read_line(&prompt) {
             Ok(Signal::Success(line)) => {
                 let input = line.trim().to_string();
 
-                // Handle luna workflow commands
                 if input == "luna workflow" || input == "luna workflow list" {
                     learner::list_workflows(&memory);
                     continue;
@@ -104,7 +146,6 @@ pub fn run() {
                     continue;
                 }
 
-                // Built-in history
                 if input == "history" {
                     memory.print_recent(10);
                     continue;
@@ -116,7 +157,7 @@ pub fn run() {
                 }
 
                 if input == "luna stats" {
-                    println!("\n  luna stats coming soon.\n");
+                    stats::show(&memory);
                     continue;
                 }
 
@@ -126,49 +167,49 @@ pub fn run() {
                     continue;
                 }
 
-                // Safety check before execution
+                // Safety check
                 match safety::check(&input) {
-                safety::RiskLevel::Critical(reason) => {
-                    println!();
-                    println!("  🚨 CRITICAL — Extremely dangerous command");
-                    println!("  ─────────────────────────────────");
-                    println!("  {}", reason);
-                    println!("  $ {}", input);
-                    println!();
-                    print!("  Type 'I UNDERSTAND' to proceed or Any key to cancel ❯ ");
-                    std::io::Write::flush(&mut std::io::stdout()).unwrap();
-                    let mut confirm = String::new();
-                    std::io::stdin().read_line(&mut confirm).unwrap();
-                    if confirm.trim() != "I UNDERSTAND" {
-                        println!("  Blocked.");
+                    safety::RiskLevel::Critical(reason) => {
                         println!();
-                        continue;
-                    }
-                    println!();
-                }
-                safety::RiskLevel::High(reason) => {
-                    println!();
-                    println!("  ⚠️  HIGH RISK");
-                    println!("  ─────────────────────────────────");
-                    println!("  {}", reason);
-                    println!("  $ {}", input);
-                    print!("  Run anyway? (y/n) ❯ ");
-                    std::io::Write::flush(&mut std::io::stdout()).unwrap();
-                    let mut confirm = String::new();
-                    std::io::stdin().read_line(&mut confirm).unwrap();
-                    if confirm.trim().to_lowercase() != "y" {
-                        println!("  Blocked.");
+                        println!("  🚨 CRITICAL — Extremely dangerous command");
+                        println!("  ─────────────────────────────────");
+                        println!("  {}", reason);
+                        println!("  $ {}", input);
                         println!();
-                        continue;
+                        print!("  Type 'I UNDERSTAND' to proceed or Any key to cancel ❯ ");
+                        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                        let mut confirm = String::new();
+                        std::io::stdin().read_line(&mut confirm).unwrap();
+                        if confirm.trim() != "I UNDERSTAND" {
+                            println!("  Blocked.");
+                            println!();
+                            continue;
+                        }
+                        println!();
                     }
-                    println!();
-                }
-                safety::RiskLevel::Medium(reason) => {
-                    println!();
-                    println!("  ⚡ MEDIUM — {}", reason);
-                    println!();
-                }
-                safety::RiskLevel::Safe => {}
+                    safety::RiskLevel::High(reason) => {
+                        println!();
+                        println!("  ⚠️  HIGH RISK");
+                        println!("  ─────────────────────────────────");
+                        println!("  {}", reason);
+                        println!("  $ {}", input);
+                        print!("  Run anyway? (y/n) ❯ ");
+                        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                        let mut confirm = String::new();
+                        std::io::stdin().read_line(&mut confirm).unwrap();
+                        if confirm.trim().to_lowercase() != "y" {
+                            println!("  Blocked.");
+                            println!();
+                            continue;
+                        }
+                        println!();
+                    }
+                    safety::RiskLevel::Medium(reason) => {
+                        println!();
+                        println!("  ⚡ MEDIUM — {}", reason);
+                        println!();
+                    }
+                    safety::RiskLevel::Safe => {}
                 }
 
                 // Save and execute
@@ -184,12 +225,39 @@ pub fn run() {
 
                 // Error detection
                 if !result.success && !result.error_output.is_empty() {
+
+                    // Step 1 — check known typos first, no API call needed
+                    let first_word = input.split_whitespace().next().unwrap_or("");
+                    if let Some(correction) = suggest_builtin(first_word) {
+                        println!();
+                        println!("  luna: did you mean '{}'?", correction);
+                        println!();
+                        if correction == "exit" || correction == "quit" {
+                            println!("  Goodbye. 🌙");
+                            break 'main;
+                        }
+                        if correction == "clear" {
+                            print!("\x1B[2J\x1B[1;1H");
+                            let _ = std::io::Write::flush(&mut std::io::stdout());
+                        } else {
+                            // Preserve rest of command — "gti status" → "git status"
+                            let rest = input[first_word.len()..].trim();
+                            let corrected = if rest.is_empty() {
+                                correction.to_string()
+                            } else {
+                                format!("{} {}", correction, rest)
+                            };
+                            commands::run(&corrected);
+                        }
+                        continue;
+                    }
+
+                    // Step 2 — permission error without sudo
                     let is_permission_error = result.error_output.contains("Permission denied")
                         || result.error_output.contains("Operation not permitted")
                         || result.error_output.contains("Interactive authentication required");
                     let already_has_sudo = input.starts_with("sudo ");
 
-                    // Never suggest sudo escalation if original command didn't use sudo
                     if is_permission_error && !already_has_sudo {
                         println!();
                         println!("  luna: permission denied");
@@ -197,6 +265,7 @@ pub fn run() {
                         println!();
                         memory.save_error(&input, &result.error_output, None);
                     } else {
+                        // Step 3 — ask AI for fix
                         let api_key = std::env::var("GROQ_API_KEY")
                             .unwrap_or_default();
 

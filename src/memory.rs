@@ -273,6 +273,50 @@ impl Memory {
         params![name],
     );
     }
+
+    pub fn get_stat(&self, query: &str) -> usize {
+    let mut stmt = match self.conn.prepare(query) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    stmt.query_row([], |row| row.get::<_, i64>(0))
+        .unwrap_or(0) as usize
+    }
+
+    pub fn get_command_counts(&self, limit: usize) -> Vec<(String, usize)> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT command, COUNT(*) as cnt FROM commands 
+            GROUP BY command 
+            ORDER BY cnt DESC 
+            LIMIT ?1"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        stmt.query_map(params![limit as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    pub fn get_all_errors(&self) -> Vec<(String, String)> {
+        let mut stmt = match self.conn.prepare(
+            "SELECT command, error FROM errors ORDER BY timestamp DESC"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        stmt.query_map(params![], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
 }
 
 
