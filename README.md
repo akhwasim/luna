@@ -3,6 +3,7 @@
 # 🌙 Luna
 
 **The terminal that gets smarter every time you use it.**
+
 > *Your terminal has amnesia. I'm fixing it.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -17,13 +18,13 @@
 
 ## The Problem
 
-Every terminal you've ever used has the same flaw.
+Every terminal you have ever used has the same flaw.
 
 Close it. Reopen it. It doesn't know who you are. It doesn't know what you were working on. It doesn't remember the error you spent three hours fixing last Tuesday, the fix that finally worked, or that you always run the same four commands at the start of every session.
 
 It just blinks at you. Empty. Again.
 
-That's not a missing feature. That's amnesia. And every terminal has it.
+That is not a missing feature. That is amnesia. And every terminal has it.
 
 **Luna is the fix.**
 
@@ -31,11 +32,11 @@ That's not a missing feature. That's amnesia. And every terminal has it.
 
 ## What Luna Is
 
-Luna is a **standalone intelligent terminal** — a compiled Rust binary that replaces your shell entirely.
+Luna is a standalone intelligent terminal.
 
 Not a plugin. Not a wrapper. Not a chatbot glued to bash.
 
-It understands natural language, executes commands safely, remembers everything across sessions, and gets smarter about how you specifically work — every single day.
+It understands natural language, executes commands safely, remembers everything across sessions, detects your patterns, and gets smarter about how you specifically work, every single day.
 
 | Every other terminal | Luna |
 |---|---|
@@ -51,52 +52,69 @@ It understands natural language, executes commands safely, remembers everything 
 ```
 You type a command
        ↓
-Safety Engine — deterministic risk analysis before anything runs
+Safety Engine inspects it before anything runs
        ↓
-Execute — Luna runs the command natively
+Luna executes it
        ↓
-Error Analysis — failure triggers automatic AI-powered fix suggestion
+If it fails, Luna analyzes the error and suggests a fix
        ↓
-Fix verified — suggestion passes through same Safety Engine
+The fix is verified by the same Safety Engine
        ↓
-Memory — command, result, directory, errors written to SQLite
+Everything is saved to SQLite memory
        ↓
-Learning — patterns detected across sessions over time
+Patterns are detected across sessions over time
+       ↓
+Next session, Luna already knows where you left off
 ```
 
 ---
 
 ## What Luna Can Do Today
 
-### Natural Language → Exact Command
+### Natural Language to Exact Command
 
 ```
-🌙 ~/projects/api ❯ /luna find all files modified in the last 7 days larger than 1MB
+🌙 ~/projects ❯ /luna find all files modified in the last 7 days larger than 1MB
 
   ─────────────────────────────────
   Find large recently modified files
   $ find . -type f -mtime -7 -size +1M -exec ls -lh {} \;
   Risk: MEDIUM ⚡  resource-heavy operation
   ─────────────────────────────────
-  Execute? (y/n) ❯
+  Execute? (y/n/more) ❯
+```
+
+### Multiple Options on Demand
+
+Type `more` to see alternatives. Luna ranks them based on your actual history.
+
+```
+  Execute? (y/n/more) ❯ more
+
+  All options:
+  ─────────────────────────────────
+  1. $ cargo run  ⭐ based on your history
+  2. $ cargo build && cargo run
+  3. $ cargo test
+  ─────────────────────────────────
+  Choose (1-3) or n to skip ❯
 ```
 
 ### Context-Aware Suggestions
 
-Luna detects your project type and adapts automatically.
+Luna detects what kind of project you are in and adapts automatically.
 
 ```
 🌙 ~/projects/api ❯ /luna how do I run this project
+
   ─────────────────────────────────
-  $ cargo run
-  Risk: LOW ✅
+  $ cargo run  ⭐ based on your history
+  Risk: LOW ✅  builds and runs
   ─────────────────────────────────
-  Execute? (y/n) ❯
+  Execute? (y/n/more) ❯
 ```
 
-Switch to a Python project — she suggests `python3 main.py`.
-Switch to Node — she suggests `npm start`.
-No configuration. Luna reads the room.
+Switch to a Python project and she suggests `python3 main.py`. Switch to Node and she suggests `npm start`. No configuration needed.
 
 ### Automatic Error Recovery
 
@@ -110,8 +128,23 @@ git: 'psuh' is not a git command.
   $ git push
   Risk: LOW ✅  fixes typo
   ─────────────────────────────────
-  Apply fix? (y/n) ❯
+  Apply fix? (y/n/more) ❯
 ```
+
+### Built-in Typo Correction
+
+Common typos are caught instantly without any API call.
+
+```
+🌙 ~/projects ❯ gti status
+luna: did you mean 'git'?
+On branch main...
+
+🌙 ~/projects ❯ cler
+luna: did you mean 'clear'?
+```
+
+Arguments are preserved too. `gti status` becomes `git status`, not just `git`.
 
 ### Persistent Memory
 
@@ -130,11 +163,87 @@ git: 'psuh' is not a git command.
 
 Every command. Every directory. Every result. Across every session. Forever.
 
+### Workflow Automation
+
+Luna watches your command sequences across sessions. When she sees the same pattern repeat five times, she offers to automate it.
+
+```
+🌙 Luna noticed a pattern
+  ─────────────────────────────────
+  You run these 3 commands together (5 times):
+    → git add .
+    → git commit -m
+    → git push
+  Save as a workflow? (y/n) ❯ y
+  Name this workflow ❯ deploy
+  ✅ Saved. Run with: luna run deploy
+```
+
+Or create one yourself at any time:
+
+```
+🌙 ~/projects ❯ luna create deploy
+
+  Creating workflow 'deploy'
+  ─────────────────────────────────
+  Enter commands one by one. Empty line when done.
+
+  Command 1 ❯ git add .
+  Command 2 ❯ git commit -m
+  Command 3 ❯ git push
+  Command 4 ❯
+
+  Note: 'git commit -m' will ask for input at runtime.
+  ✅ Workflow 'deploy' saved with 3 commands.
+```
+
+When you run it, Luna asks for missing input at the right moment:
+
+```
+🌙 ~/projects ❯ luna run deploy
+
+  Running 'deploy' (3 commands)
+  → git add . → git commit -m → git push
+  Some steps will ask for input when reached.
+  Press Enter to run or 'n' to cancel ❯
+
+  $ git add .
+
+  Commit message ❯ fix login bug
+  $ git commit -m "fix login bug"
+
+  $ git push
+```
+
+### Your Patterns at a Glance
+
+```
+🌙 ~/projects ❯ luna stats
+
+  Your Terminal Patterns
+  ─────────────────────────────────
+  Commands run:     847
+  Success rate:     84%
+
+  Most used:
+    67x  cargo build
+    43x  git status
+    31x  cargo run
+
+  Error patterns:
+  [████████░░] 87%  File not found
+  Usually fixed by: check path with ls first
+
+  [█░░░░░░░░░] 12%  Command typos
+  Usually fixed by: check command spelling
+  ─────────────────────────────────
+```
+
 ---
 
 ## Safety Layer
 
-Luna's safety system is **deterministic** — written entirely in Rust, not delegated to AI judgment.
+Luna's safety system is deterministic — written entirely in Rust, not delegated to AI judgment.
 
 ### Risk Classification
 
@@ -145,9 +254,9 @@ HIGH     → Destructive operations      (rm -rf, kill -9, chmod -R)
 CRITICAL → Potentially irreversible    (rm -rf /, mkfs, dd, fork bomb)
 ```
 
-### The Inspection Pipeline
+### Every Command Gets Inspected
 
-Every command — typed by you, suggested by AI, or generated as an error fix — passes through the same pipeline:
+Every command, whether typed by you, suggested by AI, or generated as an error fix, passes through the same pipeline before anything executes.
 
 ```
 Input
@@ -162,10 +271,10 @@ Service modification check
   ↓
 Pattern matching
   ↓
-Risk verdict → CRITICAL / HIGH / MEDIUM / LOW
+Risk verdict
 ```
 
-### CRITICAL — Requires Explicit Acknowledgement
+### CRITICAL Example
 
 ```
 🌙 ~/projects ❯ rm -rf /
@@ -180,7 +289,7 @@ Risk verdict → CRITICAL / HIGH / MEDIUM / LOW
 
 ### Shell Wrapper Detection
 
-Luna extracts and inspects the payload inside shell wrappers recursively:
+Dangerous commands hidden inside shell wrappers are still caught:
 
 ```
 🌙 ~/projects ❯ bash -c "rm -rf /"
@@ -194,47 +303,60 @@ Luna extracts and inspects the payload inside shell wrappers recursively:
 
 ### Verified Recovery
 
-When Luna suggests an error fix, that suggestion passes through the same safety engine before being shown to you. AI output is never trusted automatically.
+When Luna suggests an error fix, that suggestion passes through the same safety engine before being shown. AI output is never trusted automatically.
 
-### Coverage
+### Workflow Safety
 
-- Filesystem deletion (root, home, current directory)
-- Shell wrapper bypasses (`bash -c`, `sudo sh -c`, `zsh -c`)
-- Remote code execution (`curl | bash`, `wget | sh`, `bash <(curl ...)`)
-- Command separator attacks (`ls ; rm -rf *`, `ls || rm -rf *`)
-- Subshell attacks (`(rm -rf /)`)
-- Double privilege escalation (`sudo sudo rm -rf /`)
-- Disk operations (`mkfs`, `dd if=/dev/zero`, `fdisk`, `wipefs`)
-- Fork bombs (`:(){ :|:& };:`)
-- Service manipulation (`systemctl stop`, `kill -9 -1`, `killall -9`)
-- System file overwrites (`> /etc/passwd`, `> /etc/shadow`)
+Saved workflows are never trusted automatically.
+
+Every command inside a workflow is inspected by the same Safety Engine used everywhere else.
+
+```
+Create workflow
+      ↓
+ Safety Check
+      ↓
+     Save
+
+ Run workflow
+      ↓
+ Safety Check
+      ↓
+   Execute
+```
+
+Example:
+
+```
+🌙 ~/projects ❯ luna create cleanup
+
+  → ls
+  → rm -rf /
+  → git status
+
+  🚨 CRITICAL command in workflow: 'rm -rf /'
+  Reason: deletes your entire home or root filesystem
+```
+
+Even if a workflow is approved and saved, Luna checks every step again when the workflow is executed.
+
+A saved workflow never receives a permanent safety pass.
 
 ---
 
-## What's Coming
+### What Gets Caught
 
-### Learning Brain
-
-This is where Luna becomes genuinely different.
-
-**Habit Detection**
-Luna watches your command sequences over time. When she sees the same pattern repeat — `git add` → `git commit` → `git push`, every single day — she offers to save it as a named workflow. One command instead of five.
-
-**Personalized Ranking**
-When the AI generates suggestions, Luna reorders them based on your actual history. If you've run `cargo run` 47 times and `cargo build` 12 times, Luna ranks `cargo run` first. Not because it's generally better — because it's what you do.
-
-**Error Clustering**
-Luna groups your errors over time into categories: dependency issues, permission errors, syntax mistakes, typos. Then tells you which category dominates your failures and what usually fixes it.
-
-The Learning Brain is designed to stay local,
-lightweight, and privacy-preserving.
-### Your AI, Your Rules
-
-Luna will support multiple AI providers on first launch:
-- **Groq** (default) — free tier, fast, no GPU needed
-- **Your own API** — OpenAI, Anthropic, any OpenAI-compatible provider
-- **Local model** — Ollama, fully offline, 100% private
-- **Hybrid** — local for everyday tasks, cloud for complex ones
+- Filesystem deletion targeting root, home, current directory, or wildcards
+- Shell wrapper bypasses using bash -c, sudo sh -c, zsh -c
+- Remote code execution via curl, wget piped to shell
+- Command separator attacks like `ls ; rm -rf *`
+- Subshell attacks like `(rm -rf /)`
+- Double privilege escalation
+- Disk operations including mkfs, dd, fdisk, wipefs, shred on devices
+- Fork bombs
+- Service manipulation via systemctl, kill -9 -1, killall
+- System file overwrites targeting /etc/passwd, /etc/shadow
+- Firewall removal via iptables -F and ufw disable
 
 ---
 
@@ -242,13 +364,12 @@ Luna will support multiple AI providers on first launch:
 
 | Component | Technology | Why |
 |---|---|---|
-| Language | Rust (edition 2021) | Memory safety, zero runtime overhead |
+| Language | Rust edition 2021 | Memory safety, zero runtime overhead |
 | Input handling | reedline | Production terminal line editor |
 | AI provider | Groq API | Free tier, fast inference |
-| Memory | SQLite via rusqlite | Local, embedded, no server |
+| Memory | SQLite via rusqlite | Local, embedded, no server needed |
 | HTTP client | reqwest + tokio | Async, non-blocking AI calls |
 | Serialization | serde + serde_json | Structured AI responses |
-| ML (planned) | linfa + candle | Pure Rust, no Python dependency |
 
 ---
 
@@ -260,8 +381,8 @@ Phase 2 — AI Brain            ██████████  Complete
 Phase 3 — Memory Engine       ██████████  Complete
 Phase 4 — Error Intelligence  ██████████  Complete
 Phase 5 — Safety Layer        ██████████  Complete
-Phase 6 — Learning Brain      ░░░░░░░░░░  In Progress
-Phase 7 — UI & Themes         ░░░░░░░░░░  Coming
+Phase 6 — Learning Brain      ██████████  Complete
+Phase 7 — CLI Polish          ░░░░░░░░░░  In Progress
 Phase 8 — Distribution        ░░░░░░░░░░  Coming
 ```
 
@@ -276,14 +397,40 @@ cargo build --release
 ./target/release/luna
 ```
 
-Add your Groq API key (free at [console.groq.com](https://console.groq.com)):
+Add your Groq API key, free at [console.groq.com](https://console.groq.com):
 
 ```bash
 mkdir -p ~/.luna
 echo "GROQ_API_KEY=your_key_here" > ~/.luna/.env
 ```
 
-**Requirements:** Rust 1.70+ · Linux or WSL (Ubuntu recommended)
+**Requirements:** Rust 1.70+ and Linux or WSL (Ubuntu recommended)
+
+---
+
+## Commands
+
+```
+/luna <question>       Ask Luna anything terminal-related
+history                Show recent commands with directories
+luna stats             Show your patterns and error clusters
+luna workflows         List all saved workflows
+luna run <name>        Run a saved workflow
+luna create <name>     Create a workflow interactively
+luna delete <name>     Delete a workflow
+```
+
+---
+
+## What's Coming
+
+**Multiple AI providers** — Groq is the default but Luna will support OpenAI, Anthropic, and Ollama for fully local offline use. Choose on first launch, switch anytime.
+
+**Themes** — dark, moonlight, e-ink, and light themes using pure terminal colors. No extra dependencies.
+
+**Config file** — `~/.luna/config.toml` for AI provider, safety level, theme, and behavior settings.
+
+**Learning metrics** — measure whether Luna is actually becoming more useful over time through suggestion acceptance, workflow acceptance, common error categories, and successful fixes.
 
 ---
 
@@ -291,7 +438,7 @@ echo "GROQ_API_KEY=your_key_here" > ~/.luna/.env
 
 > *Luna never does anything you didn't see coming.*
 
-Before anything executes, you see it. Before anything changes, you approve it. Destructive patterns are intercepted before they run. AI suggestions are verified before they're shown.
+Before anything executes, you see it. Before anything changes, you approve it. Destructive patterns are intercepted. AI suggestions are verified. Nothing runs silently.
 
 Safety isn't a feature. It's the architecture.
 
@@ -301,13 +448,13 @@ Safety isn't a feature. It's the architecture.
 
 Every developer has used the same kind of terminal for thirty years. It executes what you type and forgets everything the moment you close it.
 
-Luna is what a terminal would look like if it was designed today — with persistent memory, safety by default, and intelligence that accumulates over time rather than resetting every session.
+Luna is what a terminal would look like if it was designed today — with persistent memory, safety by default, pattern recognition, and intelligence that accumulates over time rather than resetting every session.
 
 ---
 
 ## Building in Public
 
-Every decision, every mistake, every breakthrough — documented on X as it happens.
+Every decision, every mistake, every breakthrough is documented on X as it happens.
 
 *→ [@Wasim Akhtar](https://x.com/akhwasim)*
 
