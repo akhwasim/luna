@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
-
-const GROQ_API_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
+use crate::config::{LunaConfig, Provider};
 
 const SYSTEM_PROMPT: &str = "You are Luna, an AI terminal assistant. \
 You ONLY help with terminal commands, file management, system operations, \
@@ -39,7 +38,7 @@ Questions like 'what errors have I been getting', 'what was the last command I r
 For memory questions always set command to empty string and put the answer in explanation. \
 Example: 'what was the last command' → explanation: 'git status', command: ''. \
 Example: 'what have I been working on' → explanation: 'Rust project, running cargo build and git commands', command: ''. \
-Example: 'what directory am I in' → explanation: '/home/glitch/luna', command: ''. \
+Example: 'what directory am i in' → explanation: '/home/glitch/luna', command: ''. \
 Never say 'check recent commands' or 'type history' — just state the answer directly from context. \
 Risk reasons must describe the action not assumptions. \
 Package installation with apt brew pip npm is always medium risk as it modifies the system. \
@@ -57,7 +56,7 @@ Always respond in this exact JSON format: \
 The alternatives array should contain 2 other valid approaches if they exist, or empty array [] if not. \
 If request is not terminal/system related respond: \
 { \"explanation\": \"I only help with terminal and system tasks.\", \"command\": \"\", \"risk\": \"low\", \"reason\": \"out of scope request\", \"alternatives\": [] }";
- 
+
 #[derive(Serialize)]
 struct Message {
     role: String,
@@ -65,34 +64,69 @@ struct Message {
 }
 
 #[derive(Serialize)]
-struct GroqRequest {
+struct OpenAiRequest {
     model: String,
     messages: Vec<Message>,
     temperature: f32,
 }
 
 #[derive(Deserialize, Debug)]
-struct GroqResponse {
-    choices: Vec<Choice>,
+struct OpenAiResponse {
+    choices: Vec<OpenAiChoice>,
 }
 
 #[derive(Deserialize, Debug)]
-struct Choice {
-    message: ResponseMessage,
+struct OpenAiChoice {
+    message: OpenAiMessage,
 }
 
 #[derive(Deserialize, Debug)]
-struct ResponseMessage {
+struct OpenAiMessage {
     content: String,
 }
 
+#[derive(Serialize)]
+struct GoogleRequest {
+    contents: Vec<GoogleContent>,
+}
+
+#[derive(Serialize)]
+struct GoogleContent {
+    parts: Vec<GooglePart>,
+}
+
+#[derive(Serialize)]
+struct GooglePart {
+    text: String,
+}
+
 #[derive(Deserialize, Debug)]
-struct LunaResponse {
-    explanation: String,
-    command: String,
-    risk: String,
-    reason: String,
-    alternatives: Option<Vec<String>>,
+struct GoogleResponse {
+    candidates: Vec<GoogleCandidate>,
+}
+
+#[derive(Deserialize, Debug)]
+struct GoogleCandidate {
+    content: GoogleCandidateContent,
+}
+
+#[derive(Deserialize, Debug)]
+struct GoogleCandidateContent {
+    parts: Vec<GoogleCandidatePart>,
+}
+
+#[derive(Deserialize, Debug)]
+struct GoogleCandidatePart {
+    text: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct LunaResponse {
+    pub explanation: String,
+    pub command: String,
+    pub risk: String,
+    pub reason: String,
+    pub alternatives: Option<Vec<String>>,
 }
 
 fn sanitize_command(cmd: &str) -> String {
@@ -138,15 +172,25 @@ fn is_memory_query(query: &str) -> bool {
 fn extract_first_json(text: &str) -> String {
     let start = text.find('{');
     let end = text.rfind('}');
-
     match (start, end) {
         (Some(s), Some(e)) if e > s => text[s..=e].to_string(),
         _ => text.to_string(),
     }
 }
 
-pub async fn ask(query: &str, api_key: &str, context: &str) {
-    let client = reqwest::Client::new();
+pub async fn ask(query: &str, cfg: &LunaConfig, context: &str) {
+    if matches!(cfg.ai.provider, Provider::None) {
+        println!("\n  🌙 No AI provider configured.");
+        println!("  Run `luna config` to set one up.\n");
+        return;
+    }
+
+    let api_key = cfg.resolved_api_key();
+    if api_key.is_empty() && cfg.ai.provider.needs_key() {
+        eprintln!("\n  ⚠️  Missing API key for {}.", cfg.ai.provider);
+        eprintln!("  Run `luna config` to update.\n");
+        return;
+    }
 
     let user_message = if context.is_empty() {
         query.to_string()
@@ -154,128 +198,121 @@ pub async fn ask(query: &str, api_key: &str, context: &str) {
         format!("{}\n\nContext:\n{}", query, context)
     };
 
-    let request_body = GroqRequest {
-        model: "llama-3.3-70b-versatile".to_string(),
-        messages: vec![
-            Message {
-                role: "system".to_string(),
-                content: SYSTEM_PROMPT.to_string(),
-            },
-            Message {
-                role: "user".to_string(),
-                content: user_message,
-            },
-        ],
-        temperature: 0.3,
-    };
-
     print!("🌙 thinking...");
     io::stdout().flush().unwrap();
 
-    let response = client
-        .post(GROQ_API_URL)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await;
-
-    match response {
-        Ok(res) => {
-            match res.json::<GroqResponse>().await {
-                Ok(groq_res) => {
-                    let content = &groq_res.choices[0].message.content;
-                    let clean = content
-                        .replace("```json", "")
-                        .replace("```", "")
-                        .trim()
-                        .to_string();
-
-                    let json_str = extract_first_json(&clean);
-
-                    match serde_json::from_str::<LunaResponse>(&json_str) {
-                        Ok(mut luna_res) => {
-                            if is_memory_query(query) {
-                                luna_res.explanation = if luna_res.command.is_empty() {
-                                    luna_res.explanation
-                                } else {
-                                    format!("{} — {}", luna_res.explanation, luna_res.command)
-                                };
-                                luna_res.command = String::new();
-                            }
-                            display_and_confirm(luna_res, Some(context));
-                        }
-                        Err(_) => println!("\r🌙 {}", content),
-                    }
-                }
-                Err(e) => eprintln!("\rluna: API error: {}", e),
-            }
-        }
-        Err(e) => eprintln!("\rluna: Connection error: {}", e),
-    }
+    let res = dispatch_ask(&user_message, cfg).await;
+    handle_response(res, query, Some(context), false);
 }
 
-pub async fn fix_error(command: &str, error: &str, api_key: &str, context: &str) {
-    let client = reqwest::Client::new();
+pub async fn fix_error(command: &str, error: &str, cfg: &LunaConfig, context: &str) {
+    if matches!(cfg.ai.provider, Provider::None) {
+        return;
+    }
+    if cfg.resolved_api_key().is_empty() && cfg.ai.provider.needs_key() {
+        return;
+    }
 
     let user_message = format!(
         "Command that failed: {}\nError output: {}\n\nContext:\n{}\n\nThe command failed. Suggest a specific fix command. If the file or path does not exist, suggest how to create it or find the correct path.",
         command, error, context
     );
 
-    let request_body = GroqRequest {
-        model: "llama-3.3-70b-versatile".to_string(),
+    print!("🌙 analyzing error...");
+    io::stdout().flush().unwrap();
+
+    let res = dispatch_ask(&user_message, cfg).await;
+    println!("\r");
+    println!("  🌙 Luna detected an error");
+    println!("  ─────────────────────────────────");
+    handle_response(res, query_dummy(), None, true);
+}
+
+// dummy query to keep handle_response signature stable for fix_error path
+fn query_dummy() -> &'static str { "" }
+
+async fn dispatch_ask(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
+    match cfg.ai.provider {
+        Provider::Groq | Provider::OpenAI | Provider::Ollama => {
+            call_openai_format(user_message, cfg).await
+        }
+        Provider::Google => call_google_format(user_message, cfg).await,
+        Provider::None => Err("no provider".to_string()),
+    }
+}
+
+async fn call_openai_format(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let url = cfg.resolved_base_url();
+    let body = OpenAiRequest {
+        model: cfg.ai.model.clone(),
         messages: vec![
-            Message {
-                role: "system".to_string(),
-                content: SYSTEM_PROMPT.to_string(),
-            },
-            Message {
-                role: "user".to_string(),
-                content: user_message,
-            },
+            Message { role: "system".to_string(), content: SYSTEM_PROMPT.to_string() },
+            Message { role: "user".to_string(), content: user_message.to_string() },
         ],
         temperature: 0.3,
     };
 
-    print!("🌙 analyzing error...");
-    io::stdout().flush().unwrap();
+    let mut req = client.post(&url).header("Content-Type", "application/json").json(&body);
+    let key = cfg.resolved_api_key();
+    if !key.is_empty() {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
 
-    let response = client
-        .post(GROQ_API_URL)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await;
+    let res = req.send().await.map_err(|e| format!("connection error: {}", e))?;
+    let parsed: OpenAiResponse = res.json().await.map_err(|e| format!("api error: {}", e))?;
+    Ok(parsed.choices.first()
+        .map(|c| c.message.content.clone())
+        .unwrap_or_default())
+}
 
-    match response {
-        Ok(res) => {
-            match res.json::<GroqResponse>().await {
-                Ok(groq_res) => {
-                    let content = &groq_res.choices[0].message.content;
-                    let clean = content
-                        .replace("```json", "")
-                        .replace("```", "")
-                        .trim()
-                        .to_string();
+async fn call_google_format(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let url = format!(
+        "{}:generateContent?key={}",
+        cfg.resolved_base_url(),
+        cfg.resolved_api_key()
+    );
+    let body = GoogleRequest {
+        contents: vec![GoogleContent {
+            parts: vec![GooglePart { text: format!("{}\n\n{}", SYSTEM_PROMPT, user_message) }],
+        }],
+    };
 
-                    let json_str = extract_first_json(&clean);
+    let res = client.post(&url).header("Content-Type", "application/json").json(&body)
+        .send().await.map_err(|e| format!("connection error: {}", e))?;
+    let parsed: GoogleResponse = res.json().await.map_err(|e| format!("api error: {}", e))?;
+    Ok(parsed.candidates.first()
+        .and_then(|c| c.content.parts.first())
+        .map(|p| p.text.clone())
+        .unwrap_or_default())
+}
 
-                    match serde_json::from_str::<LunaResponse>(&json_str) {
-                        Ok(luna_res) => {
-                            println!("\r");
-                            println!("  🌙 Luna detected an error");
-                            println!("  ─────────────────────────────────");
-                            display_and_confirm(luna_res, None);
-                        }
-                        Err(_) => println!("\r🌙 {}", content),
-                    }
-                }
-                Err(e) => eprintln!("\rluna: API error: {}", e),
-            }
+fn handle_response(res: Result<String, String>, query: &str, context: Option<&str>, from_error: bool) {
+    let content = match res {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("\rluna: {}", e);
+            return;
         }
-        Err(e) => eprintln!("\rluna: Connection error: {}", e),
+    };
+
+    let clean = content.replace("```json", "").replace("```", "").trim().to_string();
+    let json_str = extract_first_json(&clean);
+
+    match serde_json::from_str::<LunaResponse>(&json_str) {
+        Ok(mut luna_res) => {
+            if !from_error && is_memory_query(query) {
+                luna_res.explanation = if luna_res.command.is_empty() {
+                    luna_res.explanation
+                } else {
+                    format!("{} — {}", luna_res.explanation, luna_res.command)
+                };
+                luna_res.command = String::new();
+            }
+            display_and_confirm(luna_res, context);
+        }
+        Err(_) => println!("\r🌙 {}", content),
     }
 }
 
@@ -303,7 +340,6 @@ fn display_and_confirm(res: LunaResponse, memory_ref: Option<&str>) {
         .unwrap_or(false);
 
     let preferred_label = if is_preferred { " ⭐ based on your history" } else { "" };
-
 
     match crate::safety::check(&clean_command) {
         crate::safety::RiskLevel::Critical(reason) => {

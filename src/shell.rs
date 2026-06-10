@@ -5,8 +5,8 @@ use crate::memory::Memory;
 use crate::safety;
 use crate::learner;
 use crate::stats;
-
-// Luna shell — input loop and prompt
+use crate::config;
+use crate::setup;
 
 fn load_env() {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -64,6 +64,15 @@ pub fn run() {
         std::process::exit(1);
     });
 
+    let cfg = match config::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("luna: config error: {}", e);
+            eprintln!("run `luna config` to set up.");
+            std::process::exit(1);
+        }
+    };
+
     println!("🌙 Luna v0.1");
     println!("Type 'exit' to quit\n");
 
@@ -71,10 +80,25 @@ pub fn run() {
 
     'main: loop {
         let prompt = build_prompt();
+        let cfg_for_command = cfg.clone();
 
         match line_editor.read_line(&prompt) {
             Ok(Signal::Success(line)) => {
                 let input = line.trim().to_string();
+
+                if input == "luna config" {
+                    std::thread::spawn(move || {
+                        tokio::runtime::Runtime::new()
+                            .unwrap()
+                            .block_on(async {
+                                setup::run().await;
+                            });
+                    })
+                    .join()
+                    .unwrap();
+                    println!("Restart Luna for changes to take effect.\n");
+                    continue;
+                }
 
                 if input == "luna workflow" || input == "luna workflow list" {
                     learner::list_workflows(&memory);
@@ -120,29 +144,23 @@ pub fn run() {
                     break;
                 }
 
-                // AI trigger
                 if input.starts_with("\\luna ") || input.starts_with("/luna ") {
                     let query = input
                         .trim_start_matches("\\luna ")
                         .trim_start_matches("/luna ")
                         .to_string();
 
-                    let api_key = std::env::var("GROQ_API_KEY")
-                        .unwrap_or_default();
+                    let context = memory.context_for_ai();
+                    let cfg_clone = cfg_for_command.clone();
+                    let query_clone = query.clone();
 
-                    if api_key.is_empty() {
-                        eprintln!("luna: GROQ_API_KEY not set in ~/.luna/.env");
-                    } else {
-                        let context = memory.context_for_ai();
-
-                        std::thread::spawn(move || {
-                            tokio::runtime::Runtime::new()
-                                .unwrap()
-                                .block_on(ai::ask(&query, &api_key, &context));
-                        })
-                        .join()
-                        .unwrap();
-                    }
+                    std::thread::spawn(move || {
+                        tokio::runtime::Runtime::new()
+                            .unwrap()
+                            .block_on(ai::ask(&query_clone, &cfg_clone, &context));
+                    })
+                    .join()
+                    .unwrap();
                     continue;
                 }
 
@@ -167,7 +185,6 @@ pub fn run() {
                     continue;
                 }
 
-                // Safety check
                 match safety::check(&input) {
                     safety::RiskLevel::Critical(reason) => {
                         println!();
@@ -212,7 +229,6 @@ pub fn run() {
                     safety::RiskLevel::Safe => {}
                 }
 
-                // Save and execute
                 let cwd = std::env::current_dir()
                     .unwrap_or_default()
                     .to_string_lossy()
@@ -223,10 +239,7 @@ pub fn run() {
 
                 learner::check_and_suggest(&memory, &input);
 
-                // Error detection
                 if !result.success && !result.error_output.is_empty() {
-
-                    // Step 1 — check known typos first, no API call needed
                     let first_word = input.split_whitespace().next().unwrap_or("");
                     if let Some(correction) = suggest_builtin(first_word) {
                         println!();
@@ -240,7 +253,6 @@ pub fn run() {
                             print!("\x1B[2J\x1B[1;1H");
                             let _ = std::io::Write::flush(&mut std::io::stdout());
                         } else {
-                            // Preserve rest of command — "gti status" → "git status"
                             let rest = input[first_word.len()..].trim();
                             let corrected = if rest.is_empty() {
                                 correction.to_string()
@@ -252,7 +264,6 @@ pub fn run() {
                         continue;
                     }
 
-                    // Step 2 — permission error without sudo
                     let is_permission_error = result.error_output.contains("Permission denied")
                         || result.error_output.contains("Operation not permitted")
                         || result.error_output.contains("Interactive authentication required");
@@ -265,30 +276,25 @@ pub fn run() {
                         println!();
                         memory.save_error(&input, &result.error_output, None);
                     } else {
-                        // Step 3 — ask AI for fix
-                        let api_key = std::env::var("GROQ_API_KEY")
-                            .unwrap_or_default();
+                        let context = memory.context_for_ai();
+                        let failed_cmd = input.clone();
+                        let error_out = result.error_output.clone();
+                        let cfg_for_ai = cfg_for_command.clone();
 
-                        if !api_key.is_empty() {
-                            let context = memory.context_for_ai();
-                            let failed_cmd = input.clone();
-                            let error_out = result.error_output.clone();
+                        memory.save_error(&failed_cmd, &error_out, None);
 
-                            memory.save_error(&failed_cmd, &error_out, None);
-
-                            std::thread::spawn(move || {
-                                tokio::runtime::Runtime::new()
-                                    .unwrap()
-                                    .block_on(ai::fix_error(
-                                        &failed_cmd,
-                                        &error_out,
-                                        &api_key,
-                                        &context,
-                                    ));
-                            })
-                            .join()
-                            .unwrap();
-                        }
+                        std::thread::spawn(move || {
+                            tokio::runtime::Runtime::new()
+                                .unwrap()
+                                .block_on(ai::fix_error(
+                                    &failed_cmd,
+                                    &error_out,
+                                    &cfg_for_ai,
+                                    &context,
+                                ));
+                        })
+                        .join()
+                        .unwrap();
                     }
                 }
             }
@@ -311,9 +317,7 @@ pub fn run() {
 }
 
 fn build_prompt() -> DefaultPrompt {
-    let cwd = std::env::current_dir()
-        .unwrap_or_default();
-
+    let cwd = std::env::current_dir().unwrap_or_default();
     let home = std::env::var("HOME").unwrap_or_default();
     let path_str = cwd.to_string_lossy();
 
