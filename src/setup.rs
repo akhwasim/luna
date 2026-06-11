@@ -35,11 +35,14 @@ fn print_welcome() {
 
 fn choose_provider() -> Provider {
     let providers = [
-        Provider::Groq,
-        Provider::OpenAI,
-        Provider::Ollama,
-        Provider::Google,
-        Provider::None,
+    Provider::Groq,
+    Provider::OpenAI,
+    Provider::Ollama,
+    Provider::Google,
+    Provider::Anthropic,
+    Provider::OpenRouter,
+    Provider::None,
+
     ];
 
     println!("Choose your AI provider:");
@@ -55,18 +58,31 @@ fn choose_provider() -> Provider {
             "2" => return Provider::OpenAI,
             "3" => return Provider::Ollama,
             "4" => return Provider::Google,
-            "5" => return Provider::None,
-            _ => println!("  Please enter 1-5."),
+            "5" => return Provider::Anthropic,
+            "6" => return Provider::OpenRouter,
+            "7" => return Provider::None,
+            _ => println!("  Please enter 1-7."),
         }
     }
 }
 
 fn prompt_api_key(provider: &Provider) -> String {
-    let env_var = provider.key_env_var();
     let signup = provider.signup_url();
-    println!("{} API key (free at {}) ❯ ", env_var, signup);
-    io::stdout().flush().ok();
-    let key = read_line("");
+    let name = match provider {
+        Provider::Groq       => "Groq",
+        Provider::OpenAI     => "OpenAI",
+        Provider::Google     => "Google Gemini",
+        Provider::Anthropic  => "Anthropic",
+        Provider::OpenRouter => "OpenRouter",
+        _ => unreachable!(),
+    };
+    println!();
+    println!("Enter your {} API key", name);
+    if !signup.is_empty() {
+        println!("(free at {})", signup);
+    }
+    println!();
+    let key = read_line("❯ ");
     key.trim().to_string()
 }
 

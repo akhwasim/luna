@@ -120,6 +120,24 @@ struct GoogleCandidatePart {
     text: String,
 }
 
+#[derive(Serialize)]
+struct AnthropicRequest {
+    model: String,
+    system: String,
+    messages: Vec<Message>,
+    max_tokens: u32,
+}
+
+#[derive(Deserialize, Debug)]
+struct AnthropicResponse {
+    content: Vec<AnthropicContent>,
+}
+
+#[derive(Deserialize, Debug)]
+struct AnthropicContent {
+    text: String,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct LunaResponse {
     pub explanation: String,
@@ -225,18 +243,16 @@ pub async fn fix_error(command: &str, error: &str, cfg: &LunaConfig, context: &s
     println!("\r");
     println!("  🌙 Luna detected an error");
     println!("  ─────────────────────────────────");
-    handle_response(res, query_dummy(), None, true);
+    handle_response(res, "", None, true);
 }
-
-// dummy query to keep handle_response signature stable for fix_error path
-fn query_dummy() -> &'static str { "" }
 
 async fn dispatch_ask(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
     match cfg.ai.provider {
-        Provider::Groq | Provider::OpenAI | Provider::Ollama => {
+        Provider::Groq | Provider::OpenAI | Provider::Ollama | Provider::OpenRouter => {
             call_openai_format(user_message, cfg).await
         }
         Provider::Google => call_google_format(user_message, cfg).await,
+        Provider::Anthropic => call_anthropic_format(user_message, cfg).await,
         Provider::None => Err("no provider".to_string()),
     }
 }
@@ -260,6 +276,11 @@ async fn call_openai_format(user_message: &str, cfg: &LunaConfig) -> Result<Stri
     }
 
     let res = req.send().await.map_err(|e| format!("connection error: {}", e))?;
+    if !res.status().is_success() {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        return Err(format!("http {} — {}", status, &body[..body.len().min(200)]));
+    }
     let parsed: OpenAiResponse = res.json().await.map_err(|e| format!("api error: {}", e))?;
     Ok(parsed.choices.first()
         .map(|c| c.message.content.clone())
@@ -269,9 +290,9 @@ async fn call_openai_format(user_message: &str, cfg: &LunaConfig) -> Result<Stri
 async fn call_google_format(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
     let client = reqwest::Client::new();
     let url = format!(
-        "{}:generateContent?key={}",
+        "{}/{}:generateContent",
         cfg.resolved_base_url(),
-        cfg.resolved_api_key()
+        cfg.ai.model
     );
     let body = GoogleRequest {
         contents: vec![GoogleContent {
@@ -279,13 +300,54 @@ async fn call_google_format(user_message: &str, cfg: &LunaConfig) -> Result<Stri
         }],
     };
 
-    let res = client.post(&url).header("Content-Type", "application/json").json(&body)
-        .send().await.map_err(|e| format!("connection error: {}", e))?;
+    let res = client.post(&url)
+        .header("Content-Type", "application/json")
+        .header("X-goog-api-key", cfg.resolved_api_key())
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("connection error: {}", e))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        return Err(format!("http {} — {}", status, &body[..body.len().min(200)]));
+    }
     let parsed: GoogleResponse = res.json().await.map_err(|e| format!("api error: {}", e))?;
     Ok(parsed.candidates.first()
         .and_then(|c| c.content.parts.first())
         .map(|p| p.text.clone())
         .unwrap_or_default())
+}
+
+async fn call_anthropic_format(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let url = cfg.resolved_base_url();
+    let body = AnthropicRequest {
+        model: cfg.ai.model.clone(),
+        system: SYSTEM_PROMPT.to_string(),
+        messages: vec![
+            Message { role: "user".to_string(), content: user_message.to_string() },
+        ],
+        max_tokens: 4096,
+    };
+
+    let res = client.post(&url)
+        .header("Content-Type", "application/json")
+        .header("x-api-key", cfg.resolved_api_key())
+        .header("anthropic-version", "2023-06-01")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("connection error: {}", e))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        return Err(format!("http {} — {}", status, &body[..body.len().min(200)]));
+    }
+    let parsed: AnthropicResponse = res.json().await.map_err(|e| format!("api error: {}", e))?;
+    Ok(parsed.content.first().map(|c| c.text.clone()).unwrap_or_default())
 }
 
 fn handle_response(res: Result<String, String>, query: &str, context: Option<&str>, from_error: bool) {

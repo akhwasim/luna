@@ -9,17 +9,21 @@ pub enum Provider {
     OpenAI,
     Ollama,
     Google,
+    Anthropic,
+    OpenRouter,
     None,
 }
 
 impl Provider {
     pub fn default_base_url(&self) -> &'static str {
         match self {
-            Provider::Groq   => "https://api.groq.com/openai/v1/chat/completions",
-            Provider::OpenAI => "https://api.openai.com/v1/chat/completions",
-            Provider::Ollama => "http://localhost:11434/api/chat",
-            Provider::Google => "https://generativelanguage.googleapis.com/v1beta/models",
-            Provider::None   => "",
+            Provider::Groq       => "https://api.groq.com/openai/v1/chat/completions",
+            Provider::OpenAI     => "https://api.openai.com/v1/chat/completions",
+            Provider::Ollama     => "http://localhost:11434/api/chat",
+            Provider::Google     => "https://generativelanguage.googleapis.com/v1beta/models",
+            Provider::Anthropic  => "https://api.anthropic.com/v1/messages",
+            Provider::OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
+            Provider::None       => "",
         }
     }
 
@@ -29,41 +33,49 @@ impl Provider {
 
     pub fn default_model(&self) -> &'static str {
         match self {
-            Provider::Groq   => "llama-3.3-70b-versatile",
-            Provider::OpenAI => "gpt-4o-mini",
-            Provider::Ollama => "llama3.2",
-            Provider::Google => "gemini-2.0-flash",
-            Provider::None   => "",
+            Provider::Groq       => "llama-3.3-70b-versatile",
+            Provider::OpenAI     => "gpt-4o-mini",
+            Provider::Ollama     => "llama3.2",
+            Provider::Google     => "gemini-2.0-flash",
+            Provider::Anthropic  => "claude-sonnet-4-5",
+            Provider::OpenRouter => "meta-llama/llama-3.1-8b-instruct:free",
+            Provider::None       => "",
         }
     }
 
     pub fn key_env_var(&self) -> &'static str {
         match self {
-            Provider::Groq   => "GROQ_API_KEY",
-            Provider::OpenAI => "OPENAI_API_KEY",
-            Provider::Google => "GOOGLE_API_KEY",
-            Provider::Ollama => "",
-            Provider::None   => "",
+            Provider::Groq       => "GROQ_API_KEY",
+            Provider::OpenAI     => "OPENAI_API_KEY",
+            Provider::Anthropic  => "ANTHROPIC_API_KEY",
+            Provider::OpenRouter => "OPENROUTER_API_KEY",
+            Provider::Google     => "GOOGLE_API_KEY",
+            Provider::Ollama     => "",
+            Provider::None       => "",
         }
     }
 
     pub fn signup_url(&self) -> &'static str {
         match self {
-            Provider::Groq   => "console.groq.com",
-            Provider::OpenAI => "platform.openai.com",
-            Provider::Google => "aistudio.google.com",
-            Provider::Ollama => "",
-            Provider::None   => "",
+            Provider::Groq       => "console.groq.com",
+            Provider::OpenAI     => "platform.openai.com",
+            Provider::Anthropic  => "console.anthropic.com",
+            Provider::OpenRouter => "openrouter.ai",
+            Provider::Google     => "aistudio.google.com",
+            Provider::Ollama     => "",
+            Provider::None       => "",
         }
     }
 
     pub fn label(&self) -> &'static str {
         match self {
-            Provider::Groq   => "Groq (free, fast — recommended)",
-            Provider::OpenAI => "OpenAI",
-            Provider::Ollama => "Ollama (local, offline, no key needed)",
-            Provider::Google => "Google Gemini",
-            Provider::None   => "Skip for now",
+            Provider::Groq       => "Groq (free, fast — recommended)",
+            Provider::OpenAI     => "OpenAI",
+            Provider::Ollama     => "Ollama (local, offline, no key needed)",
+            Provider::Google     => "Google Gemini",
+            Provider::Anthropic  => "Anthropic Claude",
+            Provider::OpenRouter => "OpenRouter (any model, free tier available)",
+            Provider::None       => "Skip for now",
         }
     }
 }
@@ -71,11 +83,13 @@ impl Provider {
 impl fmt::Display for Provider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Provider::Groq   => write!(f, "groq"),
-            Provider::OpenAI => write!(f, "openai"),
-            Provider::Ollama => write!(f, "ollama"),
-            Provider::Google => write!(f, "google"),
-            Provider::None   => write!(f, "none"),
+            Provider::Groq       => write!(f, "groq"),
+            Provider::OpenAI     => write!(f, "openai"),
+            Provider::Ollama     => write!(f, "ollama"),
+            Provider::Google     => write!(f, "google"),
+            Provider::Anthropic  => write!(f, "anthropic"),
+            Provider::OpenRouter => write!(f, "openrouter"),
+            Provider::None       => write!(f, "none"),
         }
     }
 }
@@ -115,7 +129,7 @@ pub struct LunaConfig {
 }
 
 impl LunaConfig {
-        pub fn default_for(provider: Provider, api_key: String, theme: String) -> Self {
+    pub fn default_for(provider: Provider, api_key: String, theme: String) -> Self {
         let model = provider.default_model().to_string();
         LunaConfig {
             ai: AiConfig {
@@ -138,7 +152,6 @@ impl LunaConfig {
         }
     }
 
-    // Config wins, env var is the backward-compat fallback for ~/.luna/.env users
     pub fn resolved_api_key(&self) -> String {
         if !self.ai.api_key.is_empty() {
             return self.ai.api_key.clone();
