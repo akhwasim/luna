@@ -86,6 +86,11 @@ pub fn run() {
             Ok(Signal::Success(line)) => {
                 let input = line.trim().to_string();
 
+                if input == "luna help" || input == "help" || input == "luna ?" || input == "luna --help" {
+                    print_help();
+                    continue;
+                }
+
                 if input == "luna config" {
                     std::thread::spawn(move || {
                         tokio::runtime::Runtime::new()
@@ -314,6 +319,44 @@ pub fn run() {
             }
         }
     }
+}
+
+//Luna help command
+
+fn print_help() {
+    println!();
+    println!("  🌙 Luna — your terminal that remembers");
+    println!("  ─────────────────────────────────");
+    println!();
+    println!("  Built-in commands:");
+    println!("    exit / quit              leave Luna");
+    println!("    history                  last 10 commands with directories");
+    println!();
+    println!("  AI:");
+    println!("    /luna <question>         ask Luna anything terminal-related");
+    println!("    \\luna <question>         alias for /luna");
+    println!();
+    println!("  Luna commands:");
+    println!("    luna help                show this help");
+    println!("    luna config              set up or change AI provider, key, and theme");
+    println!("    luna theme               list and switch themes");
+    println!("    luna stats               show your patterns and error clusters");
+    println!("    luna workflows           list all saved workflows");
+    println!("    luna run <name>          run a saved workflow");
+    println!("    luna create <name>       create a workflow interactively");
+    println!("    luna delete <name>       delete a saved workflow");
+    println!();
+    println!("  Workflow commands (luna workflow <action>):");
+    println!("    luna workflow list       same as 'luna workflows'");
+    println!("    luna workflow create X   same as 'luna create X'");
+    println!("    luna workflow run X      same as 'luna run X'");
+    println!("    luna workflow delete X   same as 'luna delete X'");
+    println!();
+    println!("  Examples:");
+    println!("    /luna find all .rs files modified today");
+    println!("    luna run deploy");
+    println!("    luna theme moonlight");
+    println!();
 }
 
 fn build_prompt() -> DefaultPrompt {
