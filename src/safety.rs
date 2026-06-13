@@ -83,6 +83,7 @@ fn extract_shell_payload(cmd: &str) -> Option<String> {
         "bash -c ",
         "sh -c ",
         "zsh -c ",
+        "eval ",
     ];
 
     for wrapper in &shell_wrappers {
@@ -244,8 +245,6 @@ pub fn check(command: &str) -> RiskLevel {
         ("cargo install",     "installs Rust binary globally"),
         ("git push",          "pushes changes to remote"),
         ("git reset --hard",  "discards local changes permanently"),
-        ("mv ",               "moves or renames files"),
-        ("chmod ",            "changes file permissions"),
     ];
 
     for (pattern, reason) in medium {

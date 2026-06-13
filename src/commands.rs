@@ -61,9 +61,14 @@ fn run_in_shell(input: &str) -> CommandResult {
             if let Some(mut err) = child.stderr.take() {
                 err.read_to_string(&mut stderr).ok();
             }
+            
             let status = child.wait().unwrap();
             print!("\x1b[?1h\x1b=");
             let _ = std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
+            if !stderr.is_empty() {
+                eprint!("{}", stderr);
+            }
 
             CommandResult {
                 success: status.success(),

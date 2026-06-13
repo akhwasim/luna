@@ -74,14 +74,17 @@ impl Memory {
     }
 
     pub fn recent_commands(&self, limit: usize) -> Vec<String> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = match self.conn.prepare(
             "SELECT command FROM commands ORDER BY timestamp DESC LIMIT ?1"
-        ).unwrap();
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
 
-        stmt.query_map(params![limit as i64], |row| row.get(0))
-            .unwrap()
-            .filter_map(|r| r.ok())
-            .collect()
+        match stmt.query_map(params![limit as i64], |row| row.get(0)) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     pub fn recent_errors(&self, limit: usize) -> Vec<String> {
@@ -138,17 +141,26 @@ impl Memory {
 }
 
     pub fn print_recent(&self, limit: usize) {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = match self.conn.prepare(
             "SELECT command, directory FROM commands ORDER BY timestamp DESC LIMIT ?1"
-        ).unwrap();
+        ) {
+            Ok(s) => s,
+            Err(_) => {
+                println!("  No history available.");
+                return;
+            }
+        };
 
-        let rows: Vec<(String, String)> = stmt.query_map(
+        let rows: Vec<(String, String)> = match stmt.query_map(
             params![limit as i64],
             |row| Ok((row.get(0)?, row.get(1)?))
-        )
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect();
+        ) {
+            Ok(r) => r.filter_map(|x| x.ok()).collect(),
+            Err(_) => {
+                println!("  No history available.");
+                return;
+            }
+        };
 
         if rows.is_empty() {
             println!("  No history yet.");
