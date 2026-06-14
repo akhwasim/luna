@@ -91,17 +91,17 @@ pub fn run() {
                     continue;
                 }
 
-                if input == "luna config" {
+                 if input == "luna config" {
                     std::thread::spawn(move || {
                         tokio::runtime::Runtime::new()
                             .unwrap()
                             .block_on(async {
-                                setup::run().await;
+                                setup::run_wizard().await;
                             });
                     })
                     .join()
                     .unwrap();
-                    println!("Restart Luna for changes to take effect.\n");
+                    println!("  ✅ Configuration updated. Luna is ready to use!\n");
                     continue;
                 }
 

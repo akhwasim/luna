@@ -1,7 +1,22 @@
 use std::io::{self, Write};
 use crate::config::{self, LunaConfig, Provider};
 
+/// Top-level entry point. If config exists, hand off to the shell. If not,
+/// walk the wizard and then hand off. Either way, the user never sees a
+/// "restart required" gap.
 pub async fn run() {
+    if config::config_exists() {
+        crate::shell::run();
+        return;
+    }
+    run_wizard().await;
+    crate::shell::run();
+}
+
+/// The wizard itself. Used by `run()` on first launch and by
+/// `shell::luna config` for re-setup. Walks the user through provider +
+/// key + theme, then saves.
+pub async fn run_wizard() {
     print_welcome();
 
     let provider = choose_provider();
@@ -15,14 +30,18 @@ pub async fn run() {
     let cfg = LunaConfig::default_for(provider, api_key, theme);
 
     match config::save(&cfg) {
-        Ok(_) => println!("\n✅ Saved to ~/.luna/config.toml\n"),
+        Ok(_) => {
+            println!();
+            println!("  ✅ Configuration saved");
+            println!();
+        }
         Err(e) => {
-            eprintln!("\n⚠️  Could not save config: {}", e);
-            eprintln!("   Luna will still run, but settings won't persist.\n");
+            eprintln!("\n  ⚠️  Could not save config: {}", e);
+            eprintln!("     Luna will still run, but settings won't persist.\n");
         }
     }
 
-    if matches!(cfg.ai.provider, Provider::Ollama) {
+        if matches!(cfg.ai.provider, Provider::Ollama) {
         check_ollama().await;
     }
 }
