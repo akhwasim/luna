@@ -27,8 +27,8 @@ pub async fn run_wizard() {
     };
 
     let theme = choose_theme();
-    let cfg = LunaConfig::default_for(provider, api_key, theme);
-
+    let cfg = LunaConfig::default_with_active(provider, api_key, theme);
+    
     match config::save(&cfg) {
         Ok(_) => {
             println!();
@@ -41,9 +41,13 @@ pub async fn run_wizard() {
         }
     }
 
-        if matches!(cfg.ai.provider, Provider::Ollama) {
-        check_ollama().await;
-    }
+        if matches!(
+        cfg.providers.0.values().next().map(|p| p.provider.clone()),
+        Some(Provider::Ollama)
+        
+        ) {
+            check_ollama().await;
+        }
 }
 
 fn print_welcome() {

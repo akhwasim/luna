@@ -5,7 +5,7 @@ use crate::memory::Memory;
 use crate::safety;
 use crate::learner;
 use crate::stats;
-use crate::config;
+use crate::config::{self, LunaConfig, ProviderConfig, Provider};
 use crate::setup;
 
 fn load_env() {
@@ -64,15 +64,6 @@ pub fn run() {
         std::process::exit(1);
     });
 
-    let cfg = match config::load() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("luna: config error: {}", e);
-            eprintln!("run `luna config` to set up.");
-            std::process::exit(1);
-        }
-    };
-
     println!("🌙 Luna v0.1");
     println!("Type 'exit' to quit\n");
 
@@ -80,6 +71,15 @@ pub fn run() {
 
     'main: loop {
         let prompt = build_prompt();
+
+        let cfg = match config::load() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("luna: config error: {}", e);
+                eprintln!("run `luna config` to set up.");
+                continue;
+            }
+        };
         let cfg_for_command = cfg.clone();
 
         match line_editor.read_line(&prompt) {
@@ -88,6 +88,11 @@ pub fn run() {
 
                 if input == "luna help" || input == "help" || input == "luna ?" || input == "luna --help" {
                     print_help();
+                    continue;
+                }
+
+                if input == "luna model" || input == "luna models" {
+                    run_luna_model(&cfg);
                     continue;
                 }
 
@@ -357,6 +362,170 @@ fn print_help() {
     println!("    luna run deploy");
     println!("    luna theme moonlight");
     println!();
+}
+
+fn run_luna_model(cfg: &LunaConfig) {
+    let configured: Vec<(String, ProviderConfig)> = cfg
+        .providers
+        .0
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    if configured.is_empty() {
+        println!("\n  No providers configured. Run `luna config` to set one up.\n");
+        return;
+    }
+
+    println!();
+    println!("  Switch AI provider");
+    println!("  ─────────────────────────────────");
+    for (i, (key, p)) in configured.iter().enumerate() {
+        let active = if *key == cfg.ai.active { " ← active" } else { "" };
+        let key_marker = if p.api_key.is_empty() && p.provider.needs_key() {
+            " (no key set)"
+        } else {
+            ""
+        };
+        println!("  {}. {} ({}){}{}", i + 1, p.provider.label(), p.model, key_marker, active);
+    }
+    println!("  a. Add a new provider");
+    println!("  q. Quit");
+    println!();
+
+    loop {
+        let choice = read_line_stripped("❯ ");
+        if choice == "q" || choice.is_empty() {
+            println!();
+            return;
+        }
+        if choice == "a" {
+            add_new_provider();
+            return;
+        }
+        if let Ok(n) = choice.parse::<usize>() {
+            if n >= 1 && n <= configured.len() {
+                let (key, _) = &configured[n - 1];
+                switch_provider(key);
+                return;
+            }
+        }
+        println!("  Please enter 1-{}, 'a', or 'q'.", configured.len());
+    }
+}
+
+fn switch_provider(new_key: &str) {
+    let cfg = match config::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("\n  ⚠️  Could not load config: {}\n", e);
+            return;
+        }
+    };
+    let mut new_cfg = cfg.clone();
+    new_cfg.ai.active = new_key.to_string();
+    match config::save(&new_cfg) {
+        Ok(_) => {
+            let model = new_cfg.providers.0.get(new_key).map(|p| p.model.clone()).unwrap_or_default();
+            println!();
+            println!("  ✅ Switched to {} ({})", new_key, model);
+            println!("  Takes effect on next prompt.\n");
+        }
+        Err(e) => eprintln!("\n  ⚠️  Could not save: {}\n", e),
+    }
+}
+
+fn add_new_provider() {
+    let providers = [
+        Provider::Groq,
+        Provider::OpenAI,
+        Provider::Ollama,
+        Provider::Google,
+        Provider::Anthropic,
+        Provider::OpenRouter,
+    ];
+
+    println!();
+    println!("  Which provider do you want to add?");
+    for (i, p) in providers.iter().enumerate() {
+        println!("  {}. {}", i + 1, p.label());
+    }
+    println!();
+
+    let provider = loop {
+        let choice = read_line_stripped("Choice ❯ ");
+        match choice.trim() {
+            "1" => break Provider::Groq,
+            "2" => break Provider::OpenAI,
+            "3" => break Provider::Ollama,
+            "4" => break Provider::Google,
+            "5" => break Provider::Anthropic,
+            "6" => break Provider::OpenRouter,
+            "q" => {
+                println!();
+                return;
+            }
+            _ => println!("  Please enter 1-6 or 'q' to cancel."),
+        }
+    };
+
+    let api_key = if provider.needs_key() {
+        prompt_api_key_for_add(&provider)
+    } else {
+        String::new()
+    };
+
+    let cfg = match config::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("\n  ⚠️  Could not load config: {}\n", e);
+            return;
+        }
+    };
+
+    let key_name = provider.to_string();
+    let model = provider.default_model().to_string();
+    let mut new_cfg = cfg.clone();
+    new_cfg.providers.0.insert(
+        key_name.clone(),
+        ProviderConfig {
+            provider,
+            model,
+            api_key,
+            base_url: None,
+        },
+    );
+    new_cfg.ai.active = key_name.clone();
+
+    match config::save(&new_cfg) {
+        Ok(_) => {
+            println!();
+            println!("  ✅ Added and switched to {}", key_name);
+            println!("  Takes effect on next prompt.\n");
+        }
+        Err(e) => eprintln!("\n  ⚠️  Could not save: {}\n", e),
+    }
+}
+
+fn prompt_api_key_for_add(provider: &Provider) -> String {
+    let signup = provider.signup_url();
+    let label = provider.label();
+    let name = label.split(" (").next().unwrap_or(label);    println!();
+    println!("Enter your {} API key", name);
+    if !signup.is_empty() {
+        println!("(free at {})", signup);
+    }
+    println!();
+    read_line_stripped("❯ ")
+}
+
+fn read_line_stripped(prompt: &str) -> String {
+    print!("{}", prompt);
+    use std::io::Write;
+    std::io::stdout().flush().ok();
+    let mut s = String::new();
+    std::io::stdin().read_line(&mut s).unwrap_or(0);
+    s.trim().to_string()
 }
 
 fn build_prompt() -> DefaultPrompt {

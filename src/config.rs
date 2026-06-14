@@ -1,4 +1,17 @@
+// Luna's persistent configuration.
+//
+// On disk this is ~/.luna/config.toml. The schema is split into four
+// top-level sections: [providers] (a map of every AI provider the user has
+// ever configured), [ai] (which provider is currently active), [safety],
+// [appearance], and [behavior].
+//
+// We support two on-disk formats:
+//     added multi-AI. `load` detects the legacy format on read and
+//     converts it on the fly, then writes the new format back so we don't
+//     re-migrate on every launch.
+
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::fmt;
 
@@ -36,9 +49,9 @@ impl Provider {
             Provider::Groq       => "llama-3.3-70b-versatile",
             Provider::OpenAI     => "gpt-4o-mini",
             Provider::Ollama     => "llama3.2",
-            Provider::Google     => "gemini-2.0-flash",
+            Provider::Google     => "gemini-flash-latest",
             Provider::Anthropic  => "claude-sonnet-4-5",
-            Provider::OpenRouter => "meta-llama/llama-3.1-8b-instruct:free",
+            Provider::OpenRouter => "meta-llama/llama-3.1-8b-instruct",
             Provider::None       => "",
         }
     }
@@ -94,13 +107,25 @@ impl fmt::Display for Provider {
     }
 }
 
+// One entry in the providers map. The map key (a string like "groq") is
+// the lookup name used by `ai.active` in the config file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AiConfig {
+pub struct ProviderConfig {
     pub provider: Provider,
     pub model: String,
     pub api_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Providers(pub HashMap<String, ProviderConfig>);
+
+// The currently active provider. We just store the key (e.g. "groq") —
+// the actual config lives in the providers map.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveAi {
+    pub active: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,51 +147,73 @@ pub struct BehaviorConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LunaConfig {
-    pub ai: AiConfig,
+    pub providers: Providers,
+    pub ai: ActiveAi,
     pub safety: SafetyConfig,
     pub appearance: AppearanceConfig,
     pub behavior: BehaviorConfig,
 }
 
 impl LunaConfig {
-    pub fn default_for(provider: Provider, api_key: String, theme: String) -> Self {
+    /// Build a fresh config with one provider installed and active. Used
+    /// by the first-time setup flow.
+    pub fn default_with_active(provider: Provider, api_key: String, theme: String) -> Self {
+        let key = provider.to_string();
         let model = provider.default_model().to_string();
-        LunaConfig {
-            ai: AiConfig {
+        let mut map = HashMap::new();
+        map.insert(
+            key.clone(),
+            ProviderConfig {
                 provider,
                 model,
                 api_key,
                 base_url: None,
             },
-            safety: SafetyConfig {
-                level: "balanced".to_string(),
-            },
-            appearance: AppearanceConfig {
-                theme,
-                colors: true,
-            },
-            behavior: BehaviorConfig {
-                habit_threshold: 5,
-                history_limit: 1000,
-            },
+        );
+        LunaConfig {
+            providers: Providers(map),
+            ai: ActiveAi { active: key },
+            safety: SafetyConfig { level: "balanced".to_string() },
+            appearance: AppearanceConfig { theme, colors: true },
+            behavior: BehaviorConfig { habit_threshold: 5, history_limit: 1000 },
         }
     }
 
+    /// Return a reference to the currently active provider config, or
+    /// None if the active key doesn't resolve.
+    pub fn active_provider(&self) -> Option<&ProviderConfig> {
+        self.providers.0.get(&self.ai.active)
+    }
+
+    /// The key the AI is currently using. Equivalent to `cfg.ai.active`.
+    pub fn active_key(&self) -> &str {
+        &self.ai.active
+    }
+
+    /// Look up the API key for the active provider. Falls back to the
+    /// matching env var (e.g. GROQ_API_KEY) if the config has no key —
+    /// preserves backward compat for users who set keys in ~/.luna/.env.
     pub fn resolved_api_key(&self) -> String {
-        if !self.ai.api_key.is_empty() {
-            return self.ai.api_key.clone();
+        let Some(p) = self.active_provider() else { return String::new() };
+        if !p.api_key.is_empty() {
+            return p.api_key.clone();
         }
-        let env_var = self.ai.provider.key_env_var();
+        let env_var = p.provider.key_env_var();
         if env_var.is_empty() {
             return String::new();
         }
         std::env::var(env_var).unwrap_or_default()
     }
 
+    /// The base URL to send AI requests to. Honors per-provider overrides
+    /// in config, falls back to the provider's known default.
     pub fn resolved_base_url(&self) -> String {
-        self.ai.base_url
+        let Some(p) = self.active_provider() else {
+            return Provider::None.default_base_url().to_string();
+        };
+        p.base_url
             .clone()
-            .unwrap_or_else(|| self.ai.provider.default_base_url().to_string())
+            .unwrap_or_else(|| p.provider.default_base_url().to_string())
     }
 }
 
@@ -179,12 +226,61 @@ pub fn config_exists() -> bool {
     config_path().exists()
 }
 
+/// Read the config from disk. If it's in the legacy single-provider
+/// format, migrate it to the new multi-provider format and write it back,
+/// then return the new version.
 pub fn load() -> Result<LunaConfig, String> {
     let path = config_path();
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("could not read config: {}", e))?;
-    toml::from_str(&content)
-        .map_err(|e| format!("config parse error: {}", e))
+
+    if let Ok(cfg) = toml::from_str::<LunaConfig>(&content) {
+        return Ok(cfg);
+    }
+
+    // Legacy: single [ai] block with provider, model, api_key.
+    #[derive(Deserialize)]
+    struct Legacy {
+        ai: LegacyAi,
+        safety: SafetyConfig,
+        appearance: AppearanceConfig,
+        behavior: BehaviorConfig,
+    }
+    #[derive(Deserialize)]
+    struct LegacyAi {
+        provider: Provider,
+        model: String,
+        api_key: String,
+        #[serde(default)]
+        base_url: Option<String>,
+    }
+
+    let legacy: Legacy = toml::from_str(&content)
+        .map_err(|e| format!("config parse error: {}", e))?;
+
+    let key = legacy.ai.provider.to_string();
+    let mut map = HashMap::new();
+    map.insert(
+        key.clone(),
+        ProviderConfig {
+            provider: legacy.ai.provider,
+            model: legacy.ai.model,
+            api_key: legacy.ai.api_key,
+            base_url: legacy.ai.base_url,
+        },
+    );
+
+    let new_cfg = LunaConfig {
+        providers: Providers(map),
+        ai: ActiveAi { active: key },
+        safety: legacy.safety,
+        appearance: legacy.appearance,
+        behavior: legacy.behavior,
+    };
+
+    let _ = save(&new_cfg);
+
+    Ok(new_cfg)
 }
 
 pub fn save(config: &LunaConfig) -> Result<(), String> {

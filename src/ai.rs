@@ -197,15 +197,16 @@ fn extract_first_json(text: &str) -> String {
 }
 
 pub async fn ask(query: &str, cfg: &LunaConfig, context: &str) {
-    if matches!(cfg.ai.provider, Provider::None) {
+    if matches!(cfg.active_provider().map(|p| &p.provider), Some(Provider::None)) {
         println!("\n  🌙 No AI provider configured.");
         println!("  Run `luna config` to set one up.\n");
         return;
     }
 
     let api_key = cfg.resolved_api_key();
-    if api_key.is_empty() && cfg.ai.provider.needs_key() {
-        eprintln!("\n  ⚠️  Missing API key for {}.", cfg.ai.provider);
+    if api_key.is_empty() && cfg.active_provider().map(|p| p.provider.needs_key()).unwrap_or(false) {
+        let provider_label = cfg.active_provider().map(|p| p.provider.to_string()).unwrap_or_else(|| "unknown".to_string());
+        eprintln!("\n  ⚠️  Missing API key for {}.", provider_label);
         eprintln!("  Run `luna config` to update.\n");
         return;
     }
@@ -224,10 +225,10 @@ pub async fn ask(query: &str, cfg: &LunaConfig, context: &str) {
 }
 
 pub async fn fix_error(command: &str, error: &str, cfg: &LunaConfig, context: &str) {
-    if matches!(cfg.ai.provider, Provider::None) {
+    if matches!(cfg.active_provider().map(|p| &p.provider), Some(Provider::None)) {
         return;
     }
-    if cfg.resolved_api_key().is_empty() && cfg.ai.provider.needs_key() {
+    if cfg.resolved_api_key().is_empty() && cfg.active_provider().map(|p| p.provider.needs_key()).unwrap_or(false) {
         return;
     }
 
@@ -247,13 +248,14 @@ pub async fn fix_error(command: &str, error: &str, cfg: &LunaConfig, context: &s
 }
 
 async fn dispatch_ask(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
-    match cfg.ai.provider {
-        Provider::Groq | Provider::OpenAI | Provider::Ollama | Provider::OpenRouter => {
+    let active = cfg.active_provider().map(|p| &p.provider);
+    match active {
+        Some(Provider::Groq) | Some(Provider::OpenAI) | Some(Provider::Ollama) | Some(Provider::OpenRouter) => {
             call_openai_format(user_message, cfg).await
         }
-        Provider::Google => call_google_format(user_message, cfg).await,
-        Provider::Anthropic => call_anthropic_format(user_message, cfg).await,
-        Provider::None => Err("no provider".to_string()),
+        Some(Provider::Google) => call_google_format(user_message, cfg).await,
+        Some(Provider::Anthropic) => call_anthropic_format(user_message, cfg).await,
+        Some(Provider::None) | None => Err("no provider".to_string()),
     }
 }
 
@@ -261,7 +263,7 @@ async fn call_openai_format(user_message: &str, cfg: &LunaConfig) -> Result<Stri
     let client = reqwest::Client::new();
     let url = cfg.resolved_base_url();
     let body = OpenAiRequest {
-        model: cfg.ai.model.clone(),
+        model: cfg.active_provider().map(|p| p.model.clone()).unwrap_or_default(),
         messages: vec![
             Message { role: "system".to_string(), content: SYSTEM_PROMPT.to_string() },
             Message { role: "user".to_string(), content: user_message.to_string() },
@@ -292,7 +294,7 @@ async fn call_google_format(user_message: &str, cfg: &LunaConfig) -> Result<Stri
     let url = format!(
         "{}/{}:generateContent",
         cfg.resolved_base_url(),
-        cfg.ai.model
+        cfg.active_provider().map(|p| p.model.clone()).unwrap_or_default()
     );
     let body = GoogleRequest {
         contents: vec![GoogleContent {
@@ -324,7 +326,7 @@ async fn call_anthropic_format(user_message: &str, cfg: &LunaConfig) -> Result<S
     let client = reqwest::Client::new();
     let url = cfg.resolved_base_url();
     let body = AnthropicRequest {
-        model: cfg.ai.model.clone(),
+        model: cfg.active_provider().map(|p| p.model.clone()).unwrap_or_default(),
         system: SYSTEM_PROMPT.to_string(),
         messages: vec![
             Message { role: "user".to_string(), content: user_message.to_string() },
