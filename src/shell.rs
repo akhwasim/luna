@@ -14,6 +14,8 @@ fn load_env() {
     let _ = dotenvy::from_path(env_path);
 }
 
+
+
 fn suggest_builtin(cmd: &str) -> Option<&'static str> {
     let typos = [
         ("cler",   "clear"),
@@ -115,6 +117,32 @@ pub fn run() {
                     continue;
                 }
 
+                if let Some(correction) = suggest_luna_subcommand(&input) {
+                    println!();
+                    println!("  luna: did you mean '{}'?", correction);
+                    continue;
+                }
+                
+                fn suggest_luna_subcommand(input: &str) -> Option<&'static str> {
+                    let luna_typos: &[(&str, &str)] = &[
+                        ("luna modle",      "luna model"),
+                        ("luna hlep",       "luna help"),
+                        ("luna configg",    "luna config"),
+                        ("luna sttats",     "luna stats"),
+                        ("luna wokrflow",   "luna workflow"),
+                        ("luna wrokflow",   "luna workflow"),
+                        ("luna runn",       "luna run"),
+                        ("luna craete",     "luna create"),
+                        ("luna delte",      "luna delete"),
+                    ];
+                    for (wrong, correct) in luna_typos {
+                        if input == *wrong || input.starts_with(&format!("{} ", wrong)) {
+                            return Some(correct);
+                        }
+                    }
+                    None
+                }
+
                 if input.starts_with("luna workflow create ") {
                     let name = input.trim_start_matches("luna workflow create ").trim();
                     learner::create_workflow_interactive(&memory, name);
@@ -161,13 +189,15 @@ pub fn run() {
                         .to_string();
 
                     let context = memory.context_for_ai();
+                    let recent = memory.recent_commands(50);
                     let cfg_clone = cfg_for_command.clone();
                     let query_clone = query.clone();
+                    let recent_clone = recent.clone();
 
                     std::thread::spawn(move || {
                         tokio::runtime::Runtime::new()
                             .unwrap()
-                            .block_on(ai::ask(&query_clone, &cfg_clone, &context));
+                            .block_on(ai::ask(&query_clone, &cfg_clone, &context, &recent_clone));
                     })
                     .join()
                     .unwrap();
@@ -285,11 +315,14 @@ pub fn run() {
                         println!("  If you intended to run with elevated privileges, add sudo.");
                         println!();
                         memory.save_error(&input, &result.error_output, None);
-                    } else {
+                                        
+                        } else {
                         let context = memory.context_for_ai();
+                        let recent = memory.recent_commands(50);
                         let failed_cmd = input.clone();
                         let error_out = result.error_output.clone();
                         let cfg_for_ai = cfg_for_command.clone();
+                        let recent_clone = recent.clone();
 
                         memory.save_error(&failed_cmd, &error_out, None);
 
@@ -301,6 +334,7 @@ pub fn run() {
                                     &error_out,
                                     &cfg_for_ai,
                                     &context,
+                                    &recent_clone,
                                 ));
                         })
                         .join()
@@ -362,6 +396,8 @@ fn print_help() {
     println!("    luna run deploy");
     println!("    luna theme moonlight");
     println!();
+
+    println!("    luna model                switch AI provider or add a new one");
 }
 
 fn run_luna_model(cfg: &LunaConfig) {
@@ -429,7 +465,7 @@ fn switch_provider(new_key: &str) {
             let model = new_cfg.providers.0.get(new_key).map(|p| p.model.clone()).unwrap_or_default();
             println!();
             println!("  ✅ Switched to {} ({})", new_key, model);
-            println!("  Takes effect on next prompt.\n");
+            println!("  Luna is ready to use!.\n");
         }
         Err(e) => eprintln!("\n  ⚠️  Could not save: {}\n", e),
     }
@@ -501,7 +537,7 @@ fn add_new_provider() {
         Ok(_) => {
             println!();
             println!("  ✅ Added and switched to {}", key_name);
-            println!("  Takes effect on next prompt.\n");
+            println!("  Luna is ready to use!.\n");
         }
         Err(e) => eprintln!("\n  ⚠️  Could not save: {}\n", e),
     }

@@ -138,7 +138,7 @@ struct AnthropicContent {
     text: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct LunaResponse {
     pub explanation: String,
     pub command: String,
@@ -196,7 +196,7 @@ fn extract_first_json(text: &str) -> String {
     }
 }
 
-pub async fn ask(query: &str, cfg: &LunaConfig, context: &str) {
+pub async fn ask(query: &str, cfg: &LunaConfig, context: &str, recent: &[String]) {
     if matches!(cfg.active_provider().map(|p| &p.provider), Some(Provider::None)) {
         println!("\n  🌙 No AI provider configured.");
         println!("  Run `luna config` to set one up.\n");
@@ -221,10 +221,11 @@ pub async fn ask(query: &str, cfg: &LunaConfig, context: &str) {
     io::stdout().flush().unwrap();
 
     let res = dispatch_ask(&user_message, cfg).await;
-    handle_response(res, query, Some(context), false);
+    handle_response(res, query, Some(context), false, recent);
 }
 
-pub async fn fix_error(command: &str, error: &str, cfg: &LunaConfig, context: &str) {
+
+pub async fn fix_error(command: &str, error: &str, cfg: &LunaConfig, context: &str, recent: &[String]) {
     if matches!(cfg.active_provider().map(|p| &p.provider), Some(Provider::None)) {
         return;
     }
@@ -244,8 +245,9 @@ pub async fn fix_error(command: &str, error: &str, cfg: &LunaConfig, context: &s
     println!("\r");
     println!("  🌙 Luna detected an error");
     println!("  ─────────────────────────────────");
-    handle_response(res, "", None, true);
+    handle_response(res, "", None, true, recent);
 }
+
 
 async fn dispatch_ask(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
     let active = cfg.active_provider().map(|p| &p.provider);
@@ -352,7 +354,109 @@ async fn call_anthropic_format(user_message: &str, cfg: &LunaConfig) -> Result<S
     Ok(parsed.content.first().map(|c| c.text.clone()).unwrap_or_default())
 }
 
-fn handle_response(res: Result<String, String>, query: &str, context: Option<&str>, from_error: bool) {
+/// Re-rank the AI's suggestions based on the user's command history.
+///
+/// The AI returns one "main" command plus 0-2 alternatives. We look at how
+/// often the user has run each of those commands (or close variants) and
+/// re-order them so the most-used one comes first.
+///
+/// Counting rules:
+///   1. Exact match: `cargo run` 12 times → score 12
+///   2. First-word match: `cargo run --release` 5 times → if the AI's
+///      suggestion starts with `cargo`, count those 5 too. This handles
+///      variants like `cargo run` vs `cargo run --release`.
+///   3. We use the bigger of the two so a specific match beats a vague
+///      first-word match when both apply.
+fn rank_by_user_preference(
+    luna_res: &LunaResponse,
+    recent: &[String],
+) -> LunaResponse {
+    // Collect all options: main + alternatives, skipping empties.
+    let mut options: Vec<String> = vec![luna_res.command.clone()];
+    if let Some(alts) = &luna_res.alternatives {
+        for alt in alts {
+            options.push(alt.clone());
+        }
+    }
+    options.retain(|c| !c.trim().is_empty());
+
+    if options.len() <= 1 {
+        // Nothing to re-rank.
+        return luna_res.clone();
+    }
+
+    // Count occurrences of each option in recent history.
+    let mut scored: Vec<(String, usize)> = options
+        .into_iter()
+        .map(|cmd| {
+            let score = score_command(&cmd, recent);
+            (cmd, score)
+        })
+        .collect();
+
+    // Stable sort by score descending. Stable preserves the AI's original
+    // order for ties, which feels right (the AI knew what it was doing).
+    scored.sort_by(|a, b| b.1.cmp(&a.1));
+
+    // Reassemble: highest score becomes the new main, the rest become
+    // the new alternatives (in their re-ranked order).
+    let mut new_main = String::new();
+    let mut new_alts: Vec<String> = Vec::new();
+    for (i, (cmd, _)) in scored.iter().enumerate() {
+        if i == 0 {
+            new_main = cmd.clone();
+        } else {
+            new_alts.push(cmd.clone());
+        }
+    }
+
+    LunaResponse {
+        explanation: luna_res.explanation.clone(),
+        command: new_main,
+        risk: luna_res.risk.clone(),
+        reason: luna_res.reason.clone(),
+        alternatives: if new_alts.is_empty() { None } else { Some(new_alts) },
+    }
+}
+
+/// Score a single command against the recent history list. Returns a
+/// count where higher = more frequently used (or more similar to a
+/// frequently-used command).
+fn score_command(cmd: &str, recent: &[String]) -> usize {
+    let first_word = cmd.split_whitespace().next().unwrap_or("");
+    if first_word.is_empty() {
+        return 0;
+    }
+
+    let mut exact = 0usize;
+    let mut first_word_matches = 0usize;
+    for r in recent {
+        let r_trim = r.trim();
+        if r_trim.is_empty() {
+            continue;
+        }
+        if r_trim == cmd {
+            exact += 1;
+        }
+        // First-word match: does this recent command start with the same
+        // first word as the suggested command?
+        if r_trim.split_whitespace().next() == Some(first_word) {
+            first_word_matches += 1;
+        }
+    }
+
+    // Return the larger of the two. Exact matches are the strongest signal
+    // but first-word matches are still meaningful (catches variants).
+    exact.max(first_word_matches)
+}
+
+fn handle_response(
+    res: Result<String, String>,
+    query: &str,
+    context: Option<&str>,
+    from_error: bool,
+    recent: &[String],
+) {
     let content = match res {
         Ok(c) => c,
         Err(e) => {
@@ -366,6 +470,14 @@ fn handle_response(res: Result<String, String>, query: &str, context: Option<&st
 
     match serde_json::from_str::<LunaResponse>(&json_str) {
         Ok(mut luna_res) => {
+            // Re-rank based on user history. Skipped for error-fix paths
+            // (the AI is suggesting one specific fix, not a menu of
+            // choices) and skipped for memory queries (command is empty
+            // and ranking doesn't apply).
+            if !from_error && !luna_res.command.is_empty() && luna_res.command != luna_res.explanation {
+                luna_res = rank_by_user_preference(&luna_res, recent);
+            }
+
             if !from_error && is_memory_query(query) {
                 luna_res.explanation = if luna_res.command.is_empty() {
                     luna_res.explanation
@@ -399,9 +511,29 @@ fn display_and_confirm(res: LunaResponse, memory_ref: Option<&str>) {
         return;
     }
 
+    // Personalized ranking: a command is "preferred" if EITHER:
+ 
     let is_preferred = memory_ref
-        .map(|ctx| ctx.contains(&clean_command))
+        .map(|ctx| {
+            if ctx.contains(&clean_command) {
+                return true;
+            }
+  
+            let first_word = clean_command
+                .split_whitespace()
+                .next()
+                .unwrap_or("");
+            if first_word.is_empty() {
+                return false;
+            }
+
+            ctx.split(|c: char| c == ',' || c == ' ' || c == '\n')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .any(|tok| tok.split_whitespace().next() == Some(first_word))
+        })
         .unwrap_or(false);
+
 
     let preferred_label = if is_preferred { " ⭐ based on your history" } else { "" };
 
