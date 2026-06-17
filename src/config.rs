@@ -107,8 +107,6 @@ impl fmt::Display for Provider {
     }
 }
 
-// One entry in the providers map. The map key (a string like "groq") is
-// the lookup name used by `ai.active` in the config file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
     pub provider: Provider,

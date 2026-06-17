@@ -7,6 +7,7 @@ mod learner;
 mod stats;
 mod config;
 mod setup;
+mod completer;
 
 #[tokio::main]
 async fn main() {

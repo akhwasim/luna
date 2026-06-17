@@ -1,4 +1,8 @@
-use reedline::{DefaultPrompt, DefaultPromptSegment, Reedline, Signal};
+use reedline::{
+    DefaultPrompt, DefaultPromptSegment, Reedline, Signal,
+    Emacs, default_emacs_keybindings, ColumnarMenu, ReedlineMenu,
+    KeyCode, KeyModifiers, ReedlineEvent, MenuBuilder,
+};
 use crate::commands;
 use crate::ai;
 use crate::memory::Memory;
@@ -7,14 +11,7 @@ use crate::learner;
 use crate::stats;
 use crate::config::{self, LunaConfig, ProviderConfig, Provider};
 use crate::setup;
-
-fn load_env() {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let env_path = format!("{}/.luna/.env", home);
-    let _ = dotenvy::from_path(env_path);
-}
-
-
+use crate::completer::{LunaCompleter, build_path_commands};
 
 fn suggest_builtin(cmd: &str) -> Option<&'static str> {
     let typos = [
@@ -58,9 +55,27 @@ fn suggest_builtin(cmd: &str) -> Option<&'static str> {
     None
 }
 
-pub fn run() {
-    load_env();
+fn suggest_luna_subcommand(input: &str) -> Option<&'static str> {
+    let luna_typos: &[(&str, &str)] = &[
+        ("luna modle",      "luna model"),
+        ("luna hlep",       "luna help"),
+        ("luna configg",    "luna config"),
+        ("luna sttats",     "luna stats"),
+        ("luna wokrflow",   "luna workflow"),
+        ("luna wrokflow",   "luna workflow"),
+        ("luna runn",       "luna run"),
+        ("luna craete",     "luna create"),
+        ("luna delte",      "luna delete"),
+    ];
+    for (wrong, correct) in luna_typos {
+        if input == *wrong || input.starts_with(&format!("{} ", wrong)) {
+            return Some(correct);
+        }
+    }
+    None
+}
 
+pub fn run(config: LunaConfig) {
     let memory = Memory::new().unwrap_or_else(|e| {
         eprintln!("luna: memory error: {}", e);
         std::process::exit(1);
@@ -69,17 +84,40 @@ pub fn run() {
     println!("🌙 Luna v0.1");
     println!("Type 'exit' to quit\n");
 
-    let mut line_editor = Reedline::create();
+    let path_commands = build_path_commands();
+
+    let completion_menu = Box::new(
+        ColumnarMenu::default().with_name("completion_menu")
+    );
+
+    let mut keybindings = default_emacs_keybindings();
+    keybindings.add_binding(
+        KeyModifiers::NONE,
+        KeyCode::Tab,
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::Menu("completion_menu".to_string()),
+            ReedlineEvent::MenuNext,
+        ]),
+    );
+
+    let edit_mode = Box::new(Emacs::new(keybindings));
+
+    let mut line_editor = Reedline::create()
+        .with_completer(Box::new(LunaCompleter::new(&memory, path_commands)))
+        .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+        .with_edit_mode(edit_mode);
+
+    let mut cfg = config;
 
     'main: loop {
         let prompt = build_prompt();
 
-        let cfg = match config::load() {
+        cfg = match config::load() {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("luna: config error: {}", e);
-                eprintln!("run `luna config` to set up.");
-                continue;
+                eprintln!("run `luna config` to fix it.");
+                cfg
             }
         };
         let cfg_for_command = cfg.clone();
@@ -98,7 +136,7 @@ pub fn run() {
                     continue;
                 }
 
-                 if input == "luna config" {
+                if input == "luna config" {
                     std::thread::spawn(move || {
                         tokio::runtime::Runtime::new()
                             .unwrap()
@@ -121,26 +159,6 @@ pub fn run() {
                     println!();
                     println!("  luna: did you mean '{}'?", correction);
                     continue;
-                }
-                
-                fn suggest_luna_subcommand(input: &str) -> Option<&'static str> {
-                    let luna_typos: &[(&str, &str)] = &[
-                        ("luna modle",      "luna model"),
-                        ("luna hlep",       "luna help"),
-                        ("luna configg",    "luna config"),
-                        ("luna sttats",     "luna stats"),
-                        ("luna wokrflow",   "luna workflow"),
-                        ("luna wrokflow",   "luna workflow"),
-                        ("luna runn",       "luna run"),
-                        ("luna craete",     "luna create"),
-                        ("luna delte",      "luna delete"),
-                    ];
-                    for (wrong, correct) in luna_typos {
-                        if input == *wrong || input.starts_with(&format!("{} ", wrong)) {
-                            return Some(correct);
-                        }
-                    }
-                    None
                 }
 
                 if input.starts_with("luna workflow create ") {
@@ -315,8 +333,7 @@ pub fn run() {
                         println!("  If you intended to run with elevated privileges, add sudo.");
                         println!();
                         memory.save_error(&input, &result.error_output, None);
-                                        
-                        } else {
+                    } else {
                         let context = memory.context_for_ai();
                         let recent = memory.recent_commands(50);
                         let failed_cmd = input.clone();
@@ -360,7 +377,7 @@ pub fn run() {
     }
 }
 
-//Luna help command
+// Luna help command
 
 fn print_help() {
     println!();
@@ -397,7 +414,6 @@ fn print_help() {
     println!("    luna run deploy");
     println!("    luna theme moonlight");
     println!();
-
 }
 
 fn run_luna_model(cfg: &LunaConfig) {
@@ -546,7 +562,8 @@ fn add_new_provider() {
 fn prompt_api_key_for_add(provider: &Provider) -> String {
     let signup = provider.signup_url();
     let label = provider.label();
-    let name = label.split(" (").next().unwrap_or(label);    println!();
+    let name = label.split(" (").next().unwrap_or(label);
+    println!();
     println!("Enter your {} API key", name);
     if !signup.is_empty() {
         println!("(free at {})", signup);

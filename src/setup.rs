@@ -6,11 +6,25 @@ use crate::config::{self, LunaConfig, Provider};
 /// "restart required" gap.
 pub async fn run() {
     if config::config_exists() {
-        crate::shell::run();
-        return;
+        match config::load() {
+            Ok(cfg) => {
+                crate::shell::run(cfg);
+                return;
+            }
+            Err(e) => {
+                eprintln!("luna: config error: {}", e);
+                eprintln!("luna: re-running setup.");
+            }
+        }
     }
     run_wizard().await;
-    crate::shell::run();
+    match config::load() {
+        Ok(cfg) => crate::shell::run(cfg),
+        Err(e) => {
+            eprintln!("luna: could not load config after setup: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 /// The wizard itself. Used by `run()` on first launch and by
