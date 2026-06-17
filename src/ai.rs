@@ -394,8 +394,6 @@ fn rank_by_user_preference(
         })
         .collect();
 
-    // Stable sort by score descending. Stable preserves the AI's original
-    // order for ties, which feels right (the AI knew what it was doing).
     scored.sort_by(|a, b| b.1.cmp(&a.1));
 
     // Reassemble: highest score becomes the new main, the rest become
@@ -419,36 +417,22 @@ fn rank_by_user_preference(
     }
 }
 
-/// Score a single command against the recent history list. Returns a
-/// count where higher = more frequently used (or more similar to a
-/// frequently-used command).
-fn score_command(cmd: &str, recent: &[String]) -> usize {
-    let first_word = cmd.split_whitespace().next().unwrap_or("");
-    if first_word.is_empty() {
-        return 0;
-    }
 
-    let mut exact = 0usize;
-    let mut first_word_matches = 0usize;
+fn score_command(cmd: &str, recent: &[String]) -> usize {
+    let mut score = 0usize;
     for r in recent {
         let r_trim = r.trim();
         if r_trim.is_empty() {
             continue;
         }
+        // Only exact match counts as preference signal
         if r_trim == cmd {
-            exact += 1;
-        }
-        // First-word match: does this recent command start with the same
-        // first word as the suggested command?
-        if r_trim.split_whitespace().next() == Some(first_word) {
-            first_word_matches += 1;
+            score += 1;
         }
     }
-
-    // Return the larger of the two. Exact matches are the strongest signal
-    // but first-word matches are still meaningful (catches variants).
-    exact.max(first_word_matches)
+    score
 }
+
 
 fn handle_response(
     res: Result<String, String>,
