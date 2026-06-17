@@ -379,6 +379,7 @@ fn print_help() {
     println!("    luna help                show this help");
     println!("    luna config              set up or change AI provider, key, and theme");
     println!("    luna theme               list and switch themes");
+    println!("    luna model               switch AI provider or add a new one");
     println!("    luna stats               show your patterns and error clusters");
     println!("    luna workflows           list all saved workflows");
     println!("    luna run <name>          run a saved workflow");
@@ -397,7 +398,6 @@ fn print_help() {
     println!("    luna theme moonlight");
     println!();
 
-    println!("    luna model                switch AI provider or add a new one");
 }
 
 fn run_luna_model(cfg: &LunaConfig) {
