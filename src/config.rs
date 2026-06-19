@@ -183,14 +183,7 @@ impl LunaConfig {
         self.providers.0.get(&self.ai.active)
     }
 
-    /// The key the AI is currently using. Equivalent to `cfg.ai.active`.
-    pub fn active_key(&self) -> &str {
-        &self.ai.active
-    }
-
-    /// Look up the API key for the active provider. Falls back to the
-    /// matching env var (e.g. GROQ_API_KEY) if the config has no key —
-    /// preserves backward compat for users who set keys in ~/.luna/.env.
+  
     pub fn resolved_api_key(&self) -> String {
         let Some(p) = self.active_provider() else { return String::new() };
         if !p.api_key.is_empty() {

@@ -123,25 +123,15 @@ fn prompt_api_key(provider: &Provider) -> String {
     key.trim().to_string()
 }
 
+// Themes (moonlight, eink, light) are coming in v0.2.0. For v0.1.0
+// we default to "dark" so the config schema field exists but no
+// user choice is presented during setup.
 fn choose_theme() -> String {
-    let themes = ["dark", "moonlight", "eink", "light"];
     println!();
-    println!("Choose theme:");
-    for (i, t) in themes.iter().enumerate() {
-        println!("  {}. {}", i + 1, t);
-    }
+    println!("Theme: dark (default)");
+    println!("Note: moonlight, eink, and light themes coming in v0.2.0.");
     println!();
-
-    loop {
-        let choice = read_line("Choice ❯ ");
-        match choice.trim() {
-            "1" => return "dark".to_string(),
-            "2" => return "moonlight".to_string(),
-            "3" => return "eink".to_string(),
-            "4" => return "light".to_string(),
-            _ => println!("  Please enter 1-4."),
-        }
-    }
+    "dark".to_string()
 }
 
 async fn check_ollama() {

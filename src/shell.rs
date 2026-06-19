@@ -395,7 +395,7 @@ fn print_help() {
     println!("  Luna commands:");
     println!("    luna help                show this help");
     println!("    luna config              set up or change AI provider, key, and theme");
-    println!("    luna theme               list and switch themes");
+    println!("    luna theme               list and switch themes (v0.2.0)");
     println!("    luna model               switch AI provider or add a new one");
     println!("    luna stats               show your patterns and error clusters");
     println!("    luna workflows           list all saved workflows");

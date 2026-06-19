@@ -227,6 +227,9 @@ impl Memory {
         );
     }
 
+    // Phase 8: per-command frequency lookup for future "favorite commands"
+
+    #[allow(dead_code)]
     pub fn get_command_frequency(&self, command: &str) -> usize {
         let mut stmt = match self.conn.prepare(
             "SELECT COUNT(*) FROM commands WHERE command = ?1"
