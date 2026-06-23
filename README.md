@@ -30,6 +30,46 @@ That is not a missing feature. That is amnesia. And every terminal has it.
 
 ---
 
+## Installation
+
+### Linux / WSL
+
+Install Luna with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/akhwasim/luna/main/install.sh | bash
+```
+
+Restart your terminal and run:
+
+```bash
+luna
+```
+
+### Requirements
+
+* Linux or WSL
+* Internet connection for cloud AI providers
+* Optional: Ollama for fully local/offline usage
+
+### First Launch
+
+On first launch, Luna will guide you through:
+
+1. Choosing an AI provider
+2. Entering an API key (if required)
+3. Creating your configuration
+
+Supported providers:
+
+* Groq
+* OpenAI
+* Ollama
+* Google Gemini
+* Anthropic Claude
+* OpenRouter
+
+
 ## What is Luna?
 
 Luna is a **standalone intelligent terminal** written in Rust. It understands natural language, executes commands safely, remembers everything across sessions, detects your patterns, and gets smarter about how *you specifically* work, every single day.
