@@ -623,7 +623,7 @@ Phase 4 — Error Intelligence  ██████████  Complete
 Phase 5 — Safety Layer        ██████████  Complete
 Phase 6 — Learning Brain      ██████████  Complete
 Phase 7 — CLI Polish          ██████████  Complete  
-Phase 8 — Distribution        ░░░░░░░░░░  Coming
+Phase 8 — Distribution        ██████████  Complete
 ```
 
 **Phase 7 shipped:** first-launch setup, multi-AI provider system, instant `luna model` switcher, `luna help`, tab completion, automatic config migration, workflow safety validation, no-restart configuration reload.
