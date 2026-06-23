@@ -2,6 +2,12 @@
 name = "luna"
 version = "0.1.0"
 edition = "2024"
+description = "The terminal that gets smarter every time you use it"
+authors = ["Wasim Akhtar"]
+license = "MIT"
+repository = "https://github.com/akhwasim/luna"
+keywords = ["terminal", "shell", "ai", "cli"]
+
 
 [dependencies]
 reedline = "0.36"
@@ -12,3 +18,10 @@ serde_json = "1.0"
 dotenvy = "0.15"
 rusqlite = { version = "0.31", features = ["bundled"] }
 toml = "0.8"
+
+[profile.release]
+opt-level = 3
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"

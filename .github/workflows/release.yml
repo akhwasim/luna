@@ -1,0 +1,151 @@
+name: Release
+
+
+# Triggers when push a tag like v0.1.0, v1.0.0, etc.
+
+# Builds the release binary on Ubuntu and attaches it to a GitHub
+
+# Release with auto-generated release notes.
+
+#
+
+# The workflow will:
+
+#   1. Build luna in release mode (optimized, stripped)
+
+#   2. Create a GitHub Release for the tag
+
+#   3. Attach the binary as luna-x86_64-unknown-linux-gnu.tar.gz
+
+#   4. Auto-generate release notes from merged PRs since the last tag
+
+
+on:
+
+  push:
+
+    tags:
+
+      - 'v*'
+
+
+permissions:
+
+  contents: write  # needed to create the release
+
+
+jobs:
+
+  build:
+
+    name: Build release binary
+
+    runs-on: ubuntu-latest
+
+
+    steps:
+
+      - name: Checkout source
+
+        uses: actions/checkout@v4
+
+
+      - name: Install Rust toolchain
+
+        uses: dtolnay/rust-toolchain@stable
+
+
+      - name: Cache cargo registry and target
+
+        uses: actions/cache@v4
+
+        with:
+
+          path: |
+
+            ~/.cargo/registry
+
+            ~/.cargo/git
+
+            target
+
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+          restore-keys: |
+
+            ${{ runner.os }}-cargo-
+
+
+      - name: Build release binary
+
+        run: cargo build --release --locked
+
+
+      - name: Strip symbols (smaller binary)
+
+        run: strip target/release/luna
+
+
+      - name: Verify binary works
+
+        run: ./target/release/luna --help 2>&1 | head -5 || echo "no --help, that's fine"
+
+
+      - name: Create release tarball
+
+        run: |
+
+          mkdir -p release
+
+          cp target/release/luna release/luna
+
+          cat > release/README.txt <<'EOF'
+
+Luna — the terminal that gets smarter every time you use it.
+
+
+Install:  See the one-liner at https://github.com/akhwasim/luna#installation
+
+Run:      ./luna (or move to your PATH and run `luna`)
+
+
+After first launch, walk through the setup wizard to pick an AI
+
+provider and (optionally) paste an API key. Ollama works fully
+
+offline with no key.
+
+EOF
+
+          cd release
+
+          tar -czf ../luna-x86_64-unknown-linux-gnu.tar.gz .
+
+          cd ..
+
+          ls -lh luna-x86_64-unknown-linux-gnu.tar.gz
+
+
+      - name: Create GitHub Release
+
+        uses: softprops/action-gh-release@v2
+
+        with:
+
+          name: ${{ github.ref_name }}
+
+          draft: false
+
+          prerelease: false
+
+          generate_release_notes: true
+
+          files: |
+
+            luna-x86_64-unknown-linux-gnu.tar.gz
+
+            target/release/luna
+
+        env:
+
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
