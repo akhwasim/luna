@@ -16,19 +16,7 @@
 
 ---
 
-## The Problem
 
-Every terminal you have ever used has the same flaw.
-
-Close it. Reopen it. It doesn't know who you are. It doesn't know what you were working on. It doesn't remember the error you spent three hours fixing last Tuesday, the fix that finally worked, or that you always run the same four commands at the start of every session.
-
-It just blinks at you. Empty. Again.
-
-That is not a missing feature. That is amnesia. And every terminal has it.
-
-**Luna is the fix.**
-
----
 
 ## Installation
 
@@ -68,7 +56,25 @@ Supported providers:
 * Google Gemini
 * Anthropic Claude
 * OpenRouter
+---
 
+https://github.com/user-attachments/assets/5dd48d83-26c3-4ccf-a613-7391ccf3da04
+
+---
+
+## The Problem
+
+Every terminal you have ever used has the same flaw.
+
+Close it. Reopen it. It doesn't know who you are. It doesn't know what you were working on. It doesn't remember the error you spent three hours fixing last Tuesday, the fix that finally worked, or that you always run the same four commands at the start of every session.
+
+It just blinks at you. Empty. Again.
+
+That is not a missing feature. That is amnesia. And every terminal has it.
+
+**Luna is the fix.**
+
+---
 
 ## What is Luna?
 
