@@ -49,7 +49,7 @@ fn needs_shell(input: &str) -> bool {
         || input.contains('\'')
 }
 
-fn run_in_shell(input: &str) -> CommandResult {
+pub fn run_in_shell(input: &str) -> CommandResult {
     match Command::new("/bin/sh")
         .arg("-c")
         .arg(input)

@@ -679,6 +679,13 @@ It's built by one person, in public, as a study in what a focused Rust project c
 
 ---
 
+## v0.1.1 — Multi-line input fix
+
+### Fixed
+- Multi-line pastes (heredocs, line continuations, multi-line shell snippets) now execute as a single shell session instead of being split into separate commands
+- Added bracketed paste support so terminals can distinguish pasted content from typed content
+- Added input validator to show continuation prompts for incomplete input
+
 ## Building in Public
 
 Every decision, every bug, every breakthrough is documented on X as it happens. The CONTEXT.md file in the repo tracks the design, the known issues, and the architectural decisions for anyone who wants to follow along.

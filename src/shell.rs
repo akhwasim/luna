@@ -2,6 +2,7 @@ use reedline::{
     DefaultPrompt, DefaultPromptSegment, Reedline, Signal,
     Emacs, default_emacs_keybindings, ColumnarMenu, ReedlineMenu,
     KeyCode, KeyModifiers, ReedlineEvent, MenuBuilder,
+    
 };
 use crate::commands;
 use crate::ai;
@@ -12,6 +13,11 @@ use crate::stats;
 use crate::config::{self, LunaConfig, ProviderConfig, Provider};
 use crate::setup;
 use crate::completer::{LunaCompleter, build_path_commands};
+
+use reedline::{Prompt, PromptEditMode, PromptHistorySearch};
+use std::borrow::Cow;
+
+
 
 fn suggest_builtin(cmd: &str) -> Option<&'static str> {
     let typos = [
@@ -105,8 +111,11 @@ pub fn run(config: LunaConfig) {
     let mut line_editor = Reedline::create()
         .with_completer(Box::new(LunaCompleter::new(&memory, path_commands)))
         .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
-        .with_edit_mode(edit_mode);
+        .with_validator(Box::new(crate::validator::LunaValidator))
+        .with_edit_mode(edit_mode)
+        .use_bracketed_paste(true);
 
+    
     let mut cfg = config;
 
     'main: loop {
@@ -292,7 +301,12 @@ pub fn run(config: LunaConfig) {
                     .to_string_lossy()
                     .to_string();
 
-                let result = commands::run(&input);
+                let result = if input.contains('\n') || input.contains('\\') {
+                    commands::run_in_shell(&input)
+                } else {
+                    commands::run(&input)
+                };
+
                 memory.save_command(&input, &cwd, result.success);
 
                 learner::check_and_suggest(&memory, &input);
@@ -581,7 +595,44 @@ fn read_line_stripped(prompt: &str) -> String {
     s.trim().to_string()
 }
 
-fn build_prompt() -> DefaultPrompt {
+pub struct LunaPrompt {
+    inner: DefaultPrompt,
+}
+
+impl LunaPrompt {
+    pub fn new(left: DefaultPromptSegment, right: DefaultPromptSegment) -> Self {
+        Self {
+            inner: DefaultPrompt::new(left, right),
+        }
+    }
+}
+
+impl Prompt for LunaPrompt {
+    fn render_prompt_left(&self) -> Cow<'_, str> {
+        self.inner.render_prompt_left()
+    }
+
+    fn render_prompt_right(&self) -> Cow<'_, str> {
+        self.inner.render_prompt_right()
+    }
+
+    fn render_prompt_indicator(&self, edit_mode: PromptEditMode) -> Cow<'_, str> {
+        self.inner.render_prompt_indicator(edit_mode)
+    }
+
+    fn render_prompt_multiline_indicator(&self) -> Cow<'_, str> {
+        Cow::Borrowed("〉 ")
+    }
+
+    fn render_prompt_history_search_indicator(
+        &self,
+        history_search: PromptHistorySearch,
+    ) -> Cow<'_, str> {
+        self.inner.render_prompt_history_search_indicator(history_search)
+    }
+}
+
+fn build_prompt() -> LunaPrompt {
     let cwd = std::env::current_dir().unwrap_or_default();
     let home = std::env::var("HOME").unwrap_or_default();
     let path_str = cwd.to_string_lossy();
@@ -592,7 +643,7 @@ fn build_prompt() -> DefaultPrompt {
         path_str.to_string()
     };
 
-    DefaultPrompt::new(
+    LunaPrompt::new(
         DefaultPromptSegment::Basic(format!("🌙 {}", display_path)),
         DefaultPromptSegment::Basic("".to_string()),
     )

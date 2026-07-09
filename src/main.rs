@@ -8,6 +8,7 @@ mod stats;
 mod config;
 mod setup;
 mod completer;
+mod validator;
 
 #[tokio::main]
 async fn main() {
