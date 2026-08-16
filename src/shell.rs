@@ -643,8 +643,18 @@ fn build_prompt() -> LunaPrompt {
         path_str.to_string()
     };
 
+    let venv_prefix = std::env::var("VIRTUAL_ENV")
+        .ok()
+        .and_then(|path| {
+            std::path::Path::new(&path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+        })
+        .map(|name| format!("({}) ", name))
+        .unwrap_or_default();
+
     LunaPrompt::new(
-        DefaultPromptSegment::Basic(format!("🌙 {}", display_path)),
+        DefaultPromptSegment::Basic(format!("{}🌙 {}", venv_prefix, display_path)),
         DefaultPromptSegment::Basic("".to_string()),
     )
 }

@@ -1,6 +1,6 @@
 [package]
 name = "luna"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 description = "The terminal that gets smarter every time you use it"
 authors = ["Wasim Akhtar"]

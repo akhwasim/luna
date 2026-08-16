@@ -335,20 +335,20 @@ impl Memory {
 }
 
 
-fn detect_project_type() -> &'static str {
+fn detect_project_type() -> String {
     let mut dir = std::env::current_dir().unwrap_or_default();
 
     for _ in 0..4 {
         if dir.join("Cargo.toml").exists() {
-            return "Rust (use cargo commands)";
+            return "Rust (use cargo commands)".to_string();
         } else if dir.join("package.json").exists() {
-            return "Node.js (use npm/yarn/pnpm commands)";
+            return "Node.js (use npm/yarn/pnpm commands)".to_string();
         } else if dir.join("requirements.txt").exists()
             || dir.join("pyproject.toml").exists()
         {
-            return "Python (use pip/python commands)";
+            return detect_python_framework(&dir);
         } else if dir.join("go.mod").exists() {
-            return "Go (use go commands)";
+            return "Go (use go commands)".to_string();
         }
 
         match dir.parent() {
@@ -357,7 +357,55 @@ fn detect_project_type() -> &'static str {
         }
     }
 
-    "Unknown"
+    "Unknown".to_string()
+}
+
+// Looks inside requirements.txt / pyproject.toml for known framework
+// markers, so the AI gets a specific run command instead of a generic
+// "it's Python" guess (e.g. suggesting `uvicorn main:app` instead of
+// `python -m http.server` for a FastAPI project).
+fn detect_python_framework(dir: &std::path::Path) -> String {
+    let mut haystack = String::new();
+
+    if let Ok(contents) = std::fs::read_to_string(dir.join("requirements.txt")) {
+        haystack.push_str(&contents.to_lowercase());
+    }
+    if let Ok(contents) = std::fs::read_to_string(dir.join("pyproject.toml")) {
+        haystack.push_str(&contents.to_lowercase());
+    }
+
+    if dir.join("manage.py").exists() || haystack.contains("django") {
+        return "Python / Django (use manage.py, e.g. `python manage.py runserver`)".to_string();
+    }
+    if haystack.contains("fastapi") {
+        let entry = detect_asgi_entrypoint(dir).unwrap_or_else(|| "main:app".to_string());
+        return format!(
+            "Python / FastAPI (use uvicorn to run, e.g. `uvicorn {} --reload`)",
+            entry
+        );
+    }
+    if haystack.contains("flask") {
+        return "Python / Flask (use `flask run` or `python app.py`)".to_string();
+    }
+    if haystack.contains("streamlit") {
+        return "Python / Streamlit (use `streamlit run <file>.py`)".to_string();
+    }
+
+    "Python (use pip/python commands)".to_string()
+}
+
+    
+fn detect_asgi_entrypoint(dir: &std::path::Path) -> Option<String> {
+    for filename in ["main.py", "app.py", "server.py"] {
+        let path = dir.join(filename);
+        if let Ok(contents) = std::fs::read_to_string(&path) {
+            if contents.contains("app = FastAPI") || contents.contains("app=FastAPI") {
+                let module = filename.trim_end_matches(".py");
+                return Some(format!("{}:app", module));
+            }
+        }
+    }
+    None
 }
 
 fn get_db_path() -> PathBuf {
