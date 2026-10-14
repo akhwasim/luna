@@ -87,8 +87,24 @@ pub fn run(config: LunaConfig) {
         std::process::exit(1);
     });
 
-    println!("🌙 Luna v0.1");
+    println!("🌙 Luna v{}", env!("CARGO_PKG_VERSION"));
     println!("Type 'exit' to quit\n");
+
+    if let Some(latest) = check_for_update() {
+        println!(
+            "  🌙 New version available: v{} (you have v{})",
+            latest,
+            env!("CARGO_PKG_VERSION")
+        );
+        let answer = read_line_stripped("  Update now? (y/n) ❯ ");
+        if answer.eq_ignore_ascii_case("y") {
+            if run_update() {
+                std::process::exit(0);
+            }
+        } else {
+            println!("  Skipped. Run `luna update` anytime.\n");
+        }
+    }
 
     let path_commands = build_path_commands();
 
@@ -156,6 +172,12 @@ pub fn run(config: LunaConfig) {
                     .join()
                     .unwrap();
                     println!("  ✅ Configuration updated. Luna is ready to use!\n");
+                    continue;
+                }
+                if input == "luna update" {
+                    if run_update() {
+                        std::process::exit(0);
+                    }
                     continue;
                 }
 
@@ -391,6 +413,103 @@ pub fn run(config: LunaConfig) {
     }
 }
 
+// Notification 
+
+const INSTALL_CMD: &str =
+    "curl -fsSL https://raw.githubusercontent.com/akhwasim/luna/main/install.sh | bash";
+
+fn parse_version(v: &str) -> Option<(u32, u32, u32)> {
+    let mut it = v.trim().trim_start_matches('v').split('.');
+    let major = it.next()?.parse().ok()?;
+    let minor = it.next()?.parse().ok()?;
+    let patch = it
+        .next()
+        .unwrap_or("0")
+        .split(|c| c == '-' || c == '+')
+        .next()?
+        .parse()
+        .ok()?;
+    Some((major, minor, patch))
+}
+
+fn update_check_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    Some(std::path::PathBuf::from(home).join(".luna").join("update_check"))
+}
+
+fn fetch_latest_version() -> Option<String> {
+    let output = std::process::Command::new("curl")
+        .args([
+            "-fsSL",
+            "--max-time", "2",
+            "https://api.github.com/repos/akhwasim/luna/releases/latest",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let body = String::from_utf8_lossy(&output.stdout);
+    body.split("\"tag_name\"")
+        .nth(1)
+        .and_then(|s| s.split('"').nth(1))
+        .map(|s| s.trim_start_matches('v').to_string())
+}
+
+// Returns Some(latest) only if a newer version exists. Hits the network
+// at most once per 24h; the timestamp is recorded even if the fetch fails,
+// so an offline user isn't delayed on every launch.
+fn check_for_update() -> Option<String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let path = update_check_path()?;
+
+    if let Ok(s) = std::fs::read_to_string(&path) {
+        if let Ok(last) = s.trim().parse::<u64>() {
+            if now.saturating_sub(last) < 86_400 {
+                return None;
+            }
+        }
+    }
+
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, now.to_string());
+
+    let latest = fetch_latest_version()?;
+    let current = env!("CARGO_PKG_VERSION");
+    if parse_version(&latest)? > parse_version(current)? {
+        Some(latest)
+    } else {
+        None
+    }
+}
+
+fn run_update() -> bool {
+    println!();
+    println!("  🌙 Updating Luna...");
+    println!();
+    match std::process::Command::new("bash").arg("-c").arg(INSTALL_CMD).status() {
+        Ok(s) if s.success() => {
+            println!();
+            println!("  ✅ Updated. Restart Luna to use the new version.");
+            println!();
+            true
+        }
+        Ok(s) => {
+            eprintln!("  ⚠️  Update script exited with status: {}", s);
+            false
+        }
+        Err(e) => {
+            eprintln!("  ⚠️  Could not run updater: {}", e);
+            false
+        }
+    }
+}
+
 // Luna help command
 
 fn print_help() {
@@ -408,6 +527,7 @@ fn print_help() {
     println!();
     println!("  Luna commands:");
     println!("    luna help                show this help");
+    println!("    luna update              check for and install the latest version");
     println!("    luna config              set up or change AI provider, key, and theme");
     println!("    luna theme               list and switch themes (v0.2.0)");
     println!("    luna model               switch AI provider or add a new one");
