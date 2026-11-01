@@ -161,6 +161,11 @@ pub fn run(config: LunaConfig) {
                     continue;
                 }
 
+                if let Some(name) = input.strip_prefix("luna model ") {
+                    set_active_model(name);
+                    continue;
+                }
+
                 if input == "luna config" {
                     std::thread::spawn(move || {
                         tokio::runtime::Runtime::new()
@@ -531,6 +536,7 @@ fn print_help() {
     println!("    luna config              set up or change AI provider, key, and theme");
     println!("    luna theme               list and switch themes (v0.2.0)");
     println!("    luna model               switch AI provider or add a new one");
+    println!("    luna model <name>        change the model of the active provider");
     println!("    luna stats               show your patterns and error clusters");
     println!("    luna workflows           list all saved workflows");
     println!("    luna run <name>          run a saved workflow");
@@ -576,6 +582,7 @@ fn run_luna_model(cfg: &LunaConfig) {
         println!("  {}. {} ({}){}{}", i + 1, p.provider.label(), p.model, key_marker, active);
     }
     println!("  a. Add a new provider");
+    println!("  m. Change the model of the active provider");
     println!("  q. Quit");
     println!();
 
@@ -589,6 +596,10 @@ fn run_luna_model(cfg: &LunaConfig) {
             add_new_provider();
             return;
         }
+        if choice == "m" {
+            change_model_interactive(cfg);
+            return;
+        }
         if let Ok(n) = choice.parse::<usize>() {
             if n >= 1 && n <= configured.len() {
                 let (key, _) = &configured[n - 1];
@@ -596,8 +607,62 @@ fn run_luna_model(cfg: &LunaConfig) {
                 return;
             }
         }
-        println!("  Please enter 1-{}, 'a', or 'q'.", configured.len());
+        println!("  Please enter 1-{}, 'a', 'm', or 'q'.", configured.len());
     }
+}
+
+fn set_active_model(new_model: &str) {
+    let new_model = new_model.trim();
+    if new_model.is_empty() {
+        println!("\n  Usage: luna model <model-name>\n");
+        return;
+    }
+
+    let cfg = match config::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("\n  ⚠️  Could not load config: {}\n", e);
+            return;
+        }
+    };
+
+    let active_key = cfg.ai.active.clone();
+    let mut new_cfg = cfg.clone();
+
+    match new_cfg.providers.0.get_mut(&active_key) {
+        Some(p) => {
+            let old = std::mem::replace(&mut p.model, new_model.to_string());
+            let label = p.provider.label().to_string();
+            match config::save(&new_cfg) {
+                Ok(_) => {
+                    println!();
+                    println!("  ✅ {} model: {} → {}", label, old, new_model);
+                    println!("  Your API key was not changed.\n");
+                }
+                Err(e) => eprintln!("\n  ⚠️  Could not save: {}\n", e),
+            }
+        }
+        None => println!("\n  No active provider. Run `luna config` to set one up.\n"),
+    }
+}
+
+fn change_model_interactive(cfg: &LunaConfig) {
+    let Some(p) = cfg.active_provider() else {
+        println!("\n  No active provider. Run `luna config` to set one up.\n");
+        return;
+    };
+
+    println!();
+    println!("  Current model:    {}", p.model);
+    println!("  Provider default: {}", p.provider.default_model());
+    println!();
+
+    let name = read_line_stripped("  New model name (Enter to cancel) ❯ ");
+    if name.is_empty() {
+        println!();
+        return;
+    }
+    set_active_model(&name);
 }
 
 fn switch_provider(new_key: &str) {

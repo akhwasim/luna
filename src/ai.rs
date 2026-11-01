@@ -242,12 +242,154 @@ pub async fn fix_error(command: &str, error: &str, cfg: &LunaConfig, context: &s
     io::stdout().flush().unwrap();
 
     let res = dispatch_ask(&user_message, cfg).await;
+
+    // If the AI call itself failed, say so briefly instead of showing the
+    // "Luna detected an error" banner with nothing useful under it.
+    if let Err(e) = &res {
+        eprintln!("\r\x1b[2K  ⚠️  AI suggestion unavailable — {}\n", e);
+        return;
+    }
+
     println!("\r");
     println!("  🌙 Luna detected an error");
     println!("  ─────────────────────────────────");
     handle_response(res, "", None, true, recent);
 }
 
+// ── Friendly error handling ──────────────────────────────────────
+
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+fn provider_name(cfg: &LunaConfig) -> String {
+    cfg.active_provider()
+        .map(|p| {
+            let label = p.provider.label();
+            label.split(" (").next().unwrap_or(label).to_string()
+        })
+        .unwrap_or_else(|| "AI provider".to_string())
+}
+
+// Raw responses only print when LUNA_DEBUG is set.
+fn debug_log(msg: &str) {
+    if std::env::var("LUNA_DEBUG").is_ok() {
+        eprintln!("[luna debug] {}", msg);
+    }
+}
+
+// Pulls the human-readable message out of the common error shapes:
+//   {"error": {"message": "..."}}   OpenAI, Groq, OpenRouter, Anthropic, Google
+//   {"error": "..."}                Ollama
+fn extract_api_message(body: &str) -> Option<String> {
+    let mut v: serde_json::Value = serde_json::from_str(body).ok()?;
+    if let Some(first) = v.get(0).cloned() {
+        v = first; // some providers wrap the error in an array
+    }
+    let err = v.get("error")?;
+    if let Some(s) = err.as_str() {
+        return Some(s.to_string());
+    }
+    err.get("message")?.as_str().map(|s| s.to_string())
+}
+
+fn shorten(s: &str, max_chars: usize) -> String {
+    let line = s.lines().next().unwrap_or("").trim();
+    if line.chars().count() <= max_chars {
+        line.to_string()
+    } else {
+        let cut: String = line.chars().take(max_chars).collect();
+        format!("{}…", cut)
+    }
+}
+
+fn friendly_http_error(cfg: &LunaConfig, status: reqwest::StatusCode, body: &str) -> String {
+    debug_log(&format!("http {} body: {}", status, body));
+
+    let name = provider_name(cfg);
+    let code = status.as_u16();
+    let detail = extract_api_message(body);
+
+    // Retired models often come back as 400, not 404, so check the message too.
+    let lower = detail.as_deref().unwrap_or("").to_lowercase();
+    let model_problem = lower.contains("model")
+        && (lower.contains("decommission")
+            || lower.contains("deprecated")
+            || lower.contains("no longer")
+            || lower.contains("not found")
+            || lower.contains("does not exist"));
+
+    let reason = if model_problem {
+        "model unavailable"
+    } else {
+        match code {
+            401 | 403 => "API key rejected",
+            402 => "payment required",
+            404 => "not found",
+            429 => "rate limit or quota reached",
+            500..=599 => "provider error",
+            _ => "request failed",
+        }
+    };
+
+    let hint = if model_problem || code == 404 {
+        "Run `luna model <name>` to pick another model, or `luna model` to switch provider."
+    } else {
+        match code {
+            401 | 403 => "Run `luna config` to update your API key.",
+            402 => "Check your billing/credits, or run `luna model` to switch provider.",
+            429 => "Wait a bit, or run `luna model` to switch provider.",
+            500..=599 => "The provider is having trouble. Try again shortly, or run `luna model`.",
+            _ => "",
+        }
+    };
+
+    let mut msg = format!("{}: {} ({})", name, reason, code);
+    if let Some(d) = detail {
+        msg.push_str(&format!("\n     {}", shorten(&d, 140)));
+    }
+    if !hint.is_empty() {
+        msg.push_str(&format!("\n     {}", hint));
+    }
+    msg
+}
+
+fn friendly_network_error(cfg: &LunaConfig, e: &reqwest::Error) -> String {
+    debug_log(&format!("network error: {}", e));
+
+    let name = provider_name(cfg);
+    let is_ollama = matches!(
+        cfg.active_provider().map(|p| &p.provider),
+        Some(Provider::Ollama)
+    );
+
+    // Check is_connect() first: a connect timeout is both, and "can't connect"
+    // is the more useful message for an offline user.
+    if e.is_connect() && is_ollama {
+        format!("{}: can't connect\n     Is Ollama running? Start it with `ollama serve`.", name)
+    } else if e.is_connect() {
+        format!("{}: can't connect\n     Check your internet connection.", name)
+    } else if e.is_timeout() {
+        format!("{}: request timed out\n     Try again, or run `luna model` to switch provider.", name)
+    } else {
+        format!("{}: network error\n     Check your connection and try again.", name)
+    }
+}
+
+fn friendly_parse_error(cfg: &LunaConfig, e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        return friendly_network_error(cfg, e);
+    }
+    debug_log(&format!("response parse error: {}", e));
+    format!(
+        "{}: got an unexpected response\n     Try again, or run `luna model` to switch provider.",
+        provider_name(cfg)
+    )
+}
 
 async fn dispatch_ask(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
     let active = cfg.active_provider().map(|p| &p.provider);
@@ -257,12 +399,14 @@ async fn dispatch_ask(user_message: &str, cfg: &LunaConfig) -> Result<String, St
         }
         Some(Provider::Google) => call_google_format(user_message, cfg).await,
         Some(Provider::Anthropic) => call_anthropic_format(user_message, cfg).await,
-        Some(Provider::None) | None => Err("no provider".to_string()),
+        Some(Provider::None) | None => {
+            Err("No AI provider configured.\n     Run `luna config` to set one up.".to_string())
+        }
     }
 }
 
 async fn call_openai_format(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = http_client();
     let url = cfg.resolved_base_url();
     let body = OpenAiRequest {
         model: cfg.active_provider().map(|p| p.model.clone()).unwrap_or_default(),
@@ -279,20 +423,20 @@ async fn call_openai_format(user_message: &str, cfg: &LunaConfig) -> Result<Stri
         req = req.header("Authorization", format!("Bearer {}", key));
     }
 
-    let res = req.send().await.map_err(|e| format!("connection error: {}", e))?;
+    let res = req.send().await.map_err(|e| friendly_network_error(cfg, &e))?;
     if !res.status().is_success() {
         let status = res.status();
         let body = res.text().await.unwrap_or_default();
-        return Err(format!("http {} — {}", status, &body[..body.len().min(200)]));
+        return Err(friendly_http_error(cfg, status, &body));
     }
-    let parsed: OpenAiResponse = res.json().await.map_err(|e| format!("api error: {}", e))?;
+    let parsed: OpenAiResponse = res.json().await.map_err(|e| friendly_parse_error(cfg, &e))?;
     Ok(parsed.choices.first()
         .map(|c| c.message.content.clone())
         .unwrap_or_default())
 }
 
 async fn call_google_format(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = http_client();
     let url = format!(
         "{}/{}:generateContent",
         cfg.resolved_base_url(),
@@ -310,14 +454,14 @@ async fn call_google_format(user_message: &str, cfg: &LunaConfig) -> Result<Stri
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("connection error: {}", e))?;
+        .map_err(|e| friendly_network_error(cfg, &e))?;
 
     if !res.status().is_success() {
         let status = res.status();
         let body = res.text().await.unwrap_or_default();
-        return Err(format!("http {} — {}", status, &body[..body.len().min(200)]));
+        return Err(friendly_http_error(cfg, status, &body));
     }
-    let parsed: GoogleResponse = res.json().await.map_err(|e| format!("api error: {}", e))?;
+    let parsed: GoogleResponse = res.json().await.map_err(|e| friendly_parse_error(cfg, &e))?;
     Ok(parsed.candidates.first()
         .and_then(|c| c.content.parts.first())
         .map(|p| p.text.clone())
@@ -325,7 +469,7 @@ async fn call_google_format(user_message: &str, cfg: &LunaConfig) -> Result<Stri
 }
 
 async fn call_anthropic_format(user_message: &str, cfg: &LunaConfig) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = http_client();
     let url = cfg.resolved_base_url();
     let body = AnthropicRequest {
         model: cfg.active_provider().map(|p| p.model.clone()).unwrap_or_default(),
@@ -343,14 +487,14 @@ async fn call_anthropic_format(user_message: &str, cfg: &LunaConfig) -> Result<S
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("connection error: {}", e))?;
+        .map_err(|e| friendly_network_error(cfg, &e))?;
 
     if !res.status().is_success() {
         let status = res.status();
         let body = res.text().await.unwrap_or_default();
-        return Err(format!("http {} — {}", status, &body[..body.len().min(200)]));
+        return Err(friendly_http_error(cfg, status, &body));
     }
-    let parsed: AnthropicResponse = res.json().await.map_err(|e| format!("api error: {}", e))?;
+    let parsed: AnthropicResponse = res.json().await.map_err(|e| friendly_parse_error(cfg, &e))?;
     Ok(parsed.content.first().map(|c| c.text.clone()).unwrap_or_default())
 }
 
@@ -444,7 +588,8 @@ fn handle_response(
     let content = match res {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("\rluna: {}", e);
+            // \x1b[2K clears the leftover "thinking..." text on this line
+            eprintln!("\r\x1b[2K  ⚠️  {}\n", e);
             return;
         }
     };
