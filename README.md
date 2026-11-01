@@ -9,6 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-orange.svg)](https://www.rust-lang.org)
 [![Status: Building in Public](https://img.shields.io/badge/Status-Building%20in%20Public-brightgreen.svg)]()
+[![CI](https://github.com/akhwasim/luna/actions/workflows/ci.yml/badge.svg)](https://github.com/akhwasim/luna/actions/workflows/ci.yml)
 
 *Built by [Wasim Akhtar](https://github.com/akhwasim) · Building in public on [@akhwasim](https://x.com/akhwasim)*
 
@@ -16,7 +17,9 @@
 
 ---
 
+https://github.com/user-attachments/assets/5dd48d83-26c3-4ccf-a613-7391ccf3da04
 
+---
 
 ## Installation
 
@@ -58,10 +61,6 @@ Supported providers:
 * OpenRouter
 ---
 
-https://github.com/user-attachments/assets/5dd48d83-26c3-4ccf-a613-7391ccf3da04
-
----
-
 ## The Problem
 
 Every terminal you have ever used has the same flaw.
@@ -78,9 +77,9 @@ That is not a missing feature. That is amnesia. And every terminal has it.
 
 ## What is Luna?
 
-Luna is a **standalone intelligent terminal** written in Rust. It understands natural language, executes commands safely, remembers everything across sessions, detects your patterns, and gets smarter about how *you specifically* work, every single day.
+Luna is a **intelligent terminal** written in Rust. It understands natural language, executes commands safely, remembers everything across sessions, detects your patterns, and gets smarter about how *you specifically* work, every single day.
 
-It is not a plugin. It is not a wrapper around bash. It is a standalone intelligent terminal built in Rust, with first-class support for six AI providers (cloud and local), persistent SQLite-backed memory, deterministic command safety, and a learning loop that ranks suggestions by your actual history.
+It is not a plugin. It an intelligent shell/REPL that runs inside your terminal built in Rust, with first-class support for six AI providers (cloud and local), persistent SQLite-backed memory, deterministic command safety, and a learning loop that ranks suggestions by your actual history.
 
 | Every other terminal | Luna |
 |---|---|
@@ -122,11 +121,13 @@ Next session, Luna already knows where you left off
 - **Pattern learning** — Luna watches your command sequences. When you run the same three commands in the same order five times, it offers to save them as a workflow.
 - **Auto error recovery** — when a command fails, Luna analyzes the error, suggests a fix, runs the fix through the same safety engine, and presents it for your approval.
 - **Tab completion** — bash-like completion for `luna` subcommands, workflow names, `$PATH` commands, and file paths.
-- **Zero telemetry** — your data stays on your machine in `~/.luna/`. No accounts. No cloud sync. No tracking.
+- **Framework-aware context** — Luna reads your project files to detect FastAPI, Flask, Django, Streamlit, Rust, Node and Go, so AI suggestions match the project you're actually in.
+- **Virtualenv support** — `source .venv/bin/activate` and `deactivate` persist across commands, with a `(.venv)` indicator in the prompt.
+- **No telemetry** — your data stays on your machine in `~/.luna/`. No accounts. No cloud sync. No tracking. The only network calls besides your AI provider are a once-a-day version check against GitHub (nothing about you is sent) and updates you explicitly approve.
 
 ---
 
-## Quick Start
+## Build from Source
 
 ```bash
 git clone https://github.com/akhwasim/luna.git
@@ -137,7 +138,7 @@ cargo build --release
 
 On first launch, Luna walks you through choosing an AI provider and pasting an API key (or selecting Ollama for fully local/offline). That's it — you're in.
 
-**Requirements:** Rust 1.70+, Linux or WSL (Ubuntu recommended).
+**Requirements:** Rust 1.85+, Linux or WSL (Ubuntu recommended).
 
 ### Using Ollama (no API key, fully local)
 
@@ -485,6 +486,8 @@ Recent errors: cargo test: error[E0425]: ...
 
 This is what makes the AI's answers *specific to you* — it knows your project, your tools, your recent failures, and your patterns.
 
+Project detection goes beyond the language. For Python projects, Luna reads `requirements.txt` / `pyproject.toml` to detect FastAPI, Flask, Django or Streamlit, so `/luna how to start server` suggests `uvicorn main:app --reload` instead of a generic answer.
+
 ### Your patterns at a glance
 
 ```bash
@@ -532,7 +535,9 @@ exit / quit             Leave Luna
 ```
 luna help               Show this help
 luna config             Set up or change AI provider, key, and theme
-luna model              Switch AI provider or add a new one
+luna model              Switch AI provider, add a new one, or change the model (press m)
+luna model <name>       Change the model of the active provider (keeps your API key)
+luna update             Check for and install the latest version
 luna theme              List and switch themes (coming in v0.2.0)
 luna stats              Show your patterns and error clusters
 luna workflows          List all saved workflows
@@ -590,6 +595,18 @@ If you upgrade from a single-provider config (the format Luna used before multi-
 
 ---
 
+## Known Limitations
+
+Luna runs each command in its own process, so shell state does not carry over between prompts unless Luna handles it directly.
+
+- **Works across prompts:** `cd`, `source <file>` (including virtualenv activation), `deactivate`
+- **Does not persist across prompts:** `export`, `unset`, `alias`, shell functions. These only work inside a single multi-line block or `&&` chain.
+- **`source` captures environment variables only**, not shell functions defined by the sourced script.
+
+A persistent PTY-backed shell session is the planned fix. See the Roadmap.
+
+---
+
 ## Tab Completion
 
 Luna ships with bash-like tab completion:
@@ -615,7 +632,7 @@ Press Tab once for suggestions, Tab again to cycle through them.
 | Serialization | serde + serde_json + toml | Structured AI responses, clean config files |
 | Configuration | `~/.luna/config.toml` | Plain text, version-controllable, easy to edit |
 
-**Zero non-essential dependencies.** The whole binary is one Cargo project with seven crates. No telemetry libraries, no analytics, no auto-updaters.
+**Zero non-essential dependencies.** The whole binary is one Cargo project with seven crates. No telemetry libraries, no analytics, and no silent auto-updates (Luna checks GitHub for new versions once a day and always asks before installing).
 
 ---
 
@@ -650,10 +667,12 @@ Phase 8 — Distribution        ██████████  Complete
 - **Full re-ranking of alternatives** — exact-match scoring is shipped; the next iteration will rank alternatives by token-overlap with your history.
 - **Pattern confidence scores** — workflow suggestions show how confident Luna is, based on how many times you've run the sequence.
 
+### Next — Persistent shell
+
+- **Persistent PTY-backed shell session** — run one long-lived shell instead of one process per command, so `export`, `alias`, functions and every other piece of shell state behave like a normal terminal. See Known Limitations.
+
 ### v1.0.0 — Distribution
 
-- **One-line install script** (`curl | bash`)
-- **Install script**
 - **GitHub Actions release workflow** — auto-build binaries for Linux on every tag
 - **Clean-machine test suite** — automated install + smoke test on a fresh Ubuntu VM
 
@@ -661,9 +680,11 @@ Phase 8 — Distribution        ██████████  Complete
 
 ## The One Rule
 
-> *Luna never does anything you didn't see coming.*
+> *Luna shows you what it's about to run before it runs it.*
 
-Before anything executes, you see it. Before anything changes, you approve it. Destructive patterns are intercepted. AI suggestions are verified. Workflow steps are re-checked.
+Commands you type are classified before they run, and dangerous ones require confirmation. AI-suggested commands and workflow steps are always shown and approved first, and each one is re-checked by the same Safety Engine.
+
+The safety layer is pattern-based: it is a guardrail against mistakes, not a sandbox against adversarial input.
 
 Safety isn't a feature. It's the architecture.
 
@@ -679,16 +700,30 @@ It's built by one person, in public, as a study in what a focused Rust project c
 
 ---
 
-## v0.1.1 — Multi-line input fix
+## Changelog
 
-### Fixed
-- Multi-line pastes (heredocs, line continuations, multi-line shell snippets) now execute as a single shell session instead of being split into separate commands
-- Added bracketed paste support so terminals can distinguish pasted content from typed content
-- Added input validator to show continuation prompts for incomplete input
+### v0.1.4
+- Clear AI error messages instead of raw JSON (bad key, retired model, offline, rate limits)
+- `luna model <name>` changes the model without re-entering your API key
+- Request timeouts so a hung provider can't freeze Luna
+
+### v0.1.3
+- Update notifications at startup (checked at most once a day) and `luna update`
+- Banner now shows the real version
+
+### v0.1.2
+- `source` / `.` and `deactivate` now work, including `source .venv/bin/activate && pip install ...`
+- `(.venv)` indicator in the prompt
+- Framework-aware project detection (FastAPI, Flask, Django, Streamlit)
+
+### v0.1.1
+- Multi-line pastes (heredocs, line continuations, multi-line shell snippets) now run as a single shell session instead of being split into separate commands
+- Bracketed paste support so pasted and typed input are distinguished
+- Input validator with a continuation prompt for incomplete input
 
 ## Building in Public
 
-Every decision, every bug, every breakthrough is documented on X as it happens. The CONTEXT.md file in the repo tracks the design, the known issues, and the architectural decisions for anyone who wants to follow along.
+Every decision, every bug, every breakthrough is documented on X as it happens. The design, known issues, and architectural decisions are tracked in the repo for anyone who wants to follow along.
 
 *→ [@Wasim Akhtar](https://x.com/akhwasim)*
 
